@@ -5,6 +5,7 @@
                 <a href="{{ route('customers.export', request()->query()) }}">
                     <x-secondary-button type="button">Export Excel</x-secondary-button>
                 </a>
+                <x-secondary-button type="button" x-data="" x-on:click="$dispatch('open-modal', 'import-customers')">Import Excel</x-secondary-button>
                 <a href="{{ route('customers.create') }}">
                     <x-primary-button>+ Pelanggan Baru</x-primary-button>
                 </a>
@@ -15,6 +16,13 @@
     <div class="space-y-4">
         @if (session('status'))
             <div class="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('status') }}</div>
+        @endif
+
+        @if (session('import_errors'))
+            <div class="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                <p class="font-medium">Baris yang dilewati:</p>
+                <p class="mt-1">{{ session('import_errors') }}</p>
+            </div>
         @endif
 
         <x-panel>
@@ -76,4 +84,30 @@
 
         {{ $customers->links() }}
     </div>
+
+    <x-modal name="import-customers" maxWidth="md">
+        <form method="POST" action="{{ route('customers.import') }}" enctype="multipart/form-data" class="p-6">
+            @csrf
+
+            <h2 class="text-lg font-medium text-gray-900">Import Pelanggan dari Excel</h2>
+            <p class="mt-1 text-sm text-gray-500">
+                Belum punya file-nya?
+                <a href="{{ route('customers.import-template') }}" class="font-medium text-indigo-600 hover:text-indigo-800">Download contoh format import</a>
+                lalu isi baris-baris baru mengikuti contoh tersebut.
+            </p>
+
+            <div class="mt-6">
+                <x-input-label for="import_file" value="File Excel (.xlsx, .xls, atau .csv)" />
+                <input id="import_file" name="file" type="file" accept=".xlsx,.xls,.csv" required
+                    class="mt-1 block w-full rounded-md border-gray-300 text-sm text-gray-700 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100">
+                <x-input-error :messages="$errors->get('file')" class="mt-2" />
+                <p class="mt-2 text-xs text-gray-500">Kolom wajib: Nama. Kolom lain boleh dikosongkan. Setiap baris akan ditambahkan sebagai pelanggan baru dengan kode otomatis.</p>
+            </div>
+
+            <div class="mt-6 flex justify-end gap-3">
+                <x-secondary-button type="button" x-on:click="$dispatch('close')">Kembali</x-secondary-button>
+                <x-primary-button type="submit">Import</x-primary-button>
+            </div>
+        </form>
+    </x-modal>
 </x-app-layout>

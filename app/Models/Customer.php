@@ -6,6 +6,7 @@ use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class Customer extends Model
 {
@@ -63,5 +64,16 @@ class Customer extends Model
     public function inventoryTransactions(): HasMany
     {
         return $this->hasMany(InventoryTransaction::class);
+    }
+
+    public static function generateCode(): string
+    {
+        $prefix = Setting::get('customer_code_prefix', 'CUST');
+
+        do {
+            $code = "{$prefix}-".strtoupper(Str::random(6));
+        } while (self::where('customer_code', $code)->exists());
+
+        return $code;
     }
 }

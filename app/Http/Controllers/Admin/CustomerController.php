@@ -2,15 +2,15 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Exports\CustomerImportTemplateExport;
 use App\Exports\CustomersExport;
 use App\Http\Controllers\Controller;
+use App\Imports\CustomersImport;
 use App\Models\Customer;
 use App\Models\MikrotikRouter;
 use App\Models\Package;
-use App\Models\Setting;
 use App\Services\Mikrotik\MikrotikService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Maatwebsite\Excel\Facades\Excel;
 
 class CustomerController extends Controller
@@ -56,6 +56,39 @@ class CustomerController extends Controller
         return Excel::download(new CustomersExport($customers), 'pelanggan-'.now()->format('Y-m-d').'.xlsx');
     }
 
+    public function importTemplate()
+    {
+        return Excel::download(new CustomerImportTemplateExport, 'contoh-format-import-pelanggan.xlsx');
+    }
+
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+        ]);
+
+        $import = new CustomersImport;
+        Excel::import($import, $request->file('file'));
+
+        $failures = $import->failures();
+
+        if ($failures->isEmpty()) {
+            return back()->with('status', "Berhasil mengimpor {$import->imported} pelanggan.");
+        }
+
+        $errors = $failures->map(function ($failure) {
+            $row = $failure->row();
+            $messages = implode(', ', $failure->errors());
+
+            return "Baris {$row}: {$messages}";
+        })->implode(' | ');
+
+        return back()->with(
+            'status',
+            "Berhasil mengimpor {$import->imported} pelanggan. ".$failures->count().' baris dilewati karena tidak valid.'
+        )->with('import_errors', $errors);
+    }
+
     public function create()
     {
         $packages = Package::where('is_active', true)->orderBy('name')->get();
@@ -67,7 +100,7 @@ class CustomerController extends Controller
     public function store(Request $request)
     {
         $data = $this->validated($request);
-        $data['customer_code'] = $this->generateCustomerCode();
+        $data['customer_code'] = Customer::generateCode();
 
         Customer::create($data);
 
@@ -142,14 +175,4 @@ class CustomerController extends Controller
         ]);
     }
 
-    private function generateCustomerCode(): string
-    {
-        $prefix = Setting::get('customer_code_prefix', 'CUST');
-
-        do {
-            $code = "{$prefix}-".strtoupper(Str::random(6));
-        } while (Customer::where('customer_code', $code)->exists());
-
-        return $code;
-    }
 }

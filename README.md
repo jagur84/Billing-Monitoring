@@ -66,6 +66,235 @@ for Flutter installation, `flutter run` instructions, which base URL to enter
 depending on where the app runs (emulator vs. real device vs. internet), and a couple
 of Windows-specific build gotchas already worked around in this repo.
 
+## Production deployment (Ubuntu server + Docker)
+
+Step-by-step for deploying this app to a fresh (or shared) Ubuntu server that
+already has Docker + Docker Compose installed. This mirrors a real deployment done
+against an Ubuntu 24.04 VPS that was **already running other services** (another
+Docker stack on a different port, a system-level nginx on port 80) — the steps
+below account for that shared-server reality rather than assuming a blank box.
+
+### 1. SSH access
+
+If you don't already have key-based SSH access to the server:
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/my_server_key -C "deploy-key" -N ""
+ssh-copy-id -i ~/.ssh/my_server_key.pub -p 22 <user>@<server-ip>
+# or, if ssh-copy-id / sshpass aren't available (e.g. Git Bash on Windows):
+# append the contents of my_server_key.pub to ~/.ssh/authorized_keys on the
+# server manually, over an existing password-authenticated session.
+```
+Then always connect with `ssh -i ~/.ssh/my_server_key -p 22 <user>@<server-ip>`.
+Confirm Docker is already usable without `sudo` (the deploy user should be in the
+`docker` group — `groups` should list `docker`) and check for **port conflicts**
+with anything already running on the server before proceeding:
+```bash
+sudo ss -tlnp   # note anything already bound to 80, 443, 3306, 6379, 8090, 3010
+```
+This repo's default ports (`8090` app, `3306` MySQL, `6379` Redis — not published,
+see below — `3010` WhatsApp) rarely collide with other stacks, but always verify.
+
+### 2. Get the code onto the server
+
+If the GitHub repo is **private**, HTTPS clone will fail on the server with
+`fatal: could not read Username for 'https://github.com'` even though the exact
+same URL works from a machine that already has cached GitHub credentials. Use a
+**read-only Deploy Key** instead — it never leaves the server and can't push:
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/github_deploy_key -C "billing-monitoring-deploy" -N ""
+cat ~/.ssh/github_deploy_key.pub   # paste this into GitHub →
+# repo → Settings → Deploy keys → Add deploy key (leave "Allow write access" unchecked)
+```
+Then clone over SSH, pointing Git at that specific key:
+```bash
+GIT_SSH_COMMAND="ssh -i ~/.ssh/github_deploy_key -o StrictHostKeyChecking=accept-new" \
+  git clone git@github.com:<owner>/<repo>.git ~/billing-monitoring
+cd ~/billing-monitoring
+```
+
+### 3. Production `.env`
+
+Copy `.env.example` to `.env` and change at least these from their local-dev
+defaults:
+```env
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=http://<server-ip>:8090        # or https://your-domain once you have one
+LOG_LEVEL=error
+DB_PASSWORD=<generate a strong random value>
+DB_ROOT_PASSWORD=<generate a strong random value>
+```
+Generate strong passwords with `openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24`.
+Leave `MAIL_MAILER=log`, `TRIPAY_*`, etc. as placeholders — configure those later
+through **Pengaturan Sistem** in the app itself (see "Settings UI" below) rather
+than editing `.env` again.
+
+### 4. Harden MySQL/WhatsApp exposure on a shared server
+
+The default `docker-compose.yml` publishes MySQL on `3306` and the WhatsApp engine
+on `3010` to the host, which is convenient for local dev but unnecessary (and
+undesirable) on a public server — nothing outside the Docker network needs to
+reach either directly (the app talks to both over the internal `billing-net`
+network; the WhatsApp QR is already proxied through Laravel itself). Add a
+server-only override (**not committed to git**) that drops both host bindings
+entirely:
+```bash
+cat > docker-compose.override.yml << 'EOF'
+services:
+  mysql:
+    ports: !override []
+  whatsapp:
+    ports: !override []
+EOF
+echo 'docker-compose.override.yml' >> .gitignore
+```
+**Why not just bind them to `127.0.0.1` instead of removing the port entirely?**
+That was the first thing tried, and it exposed a real bug on this Docker Compose
+version: a service with a `127.0.0.1:host:container` port mapping would start and
+pass its healthcheck, but silently **never get attached to the compose-managed
+network** — `docker network inspect <project>_billing-net` would list every other
+container except the ones with a loopback-bound port, and the `app`/`worker`
+containers couldn't resolve `mysql` or `whatsapp` by hostname at all
+(`getaddrinfo for mysql failed: Temporary failure in name resolution`). Dropping
+the host port mapping entirely (rather than restricting it to loopback) sidesteps
+the bug completely and is strictly more secure anyway. If you hit that exact
+symptom — a container reachable/healthy on its own but missing from
+`docker network inspect`, and dependent containers unable to resolve its
+hostname — try removing the port mapping rather than narrowing it, and do a full
+`docker compose down && docker compose up -d` (a partial `--force-recreate` of
+just the affected services was not enough to fix it in testing; only removing
+containers **and the network** and recreating both together did).
+
+### 5. Build and start
+
+```bash
+docker compose build
+docker compose up -d
+docker compose ps   # everything should show "Up", mysql should show "(healthy)"
+```
+If `docker compose ps` shows containers cycling through `Restarting`, check
+`docker compose logs <service> --tail=20` before assuming something is broken —
+`worker`/`scheduler` restarting in a loop at this stage is expected and harmless,
+they're just failing on a missing `vendor/autoload.php` until the next step runs.
+
+### 6. Install dependencies, generate key, migrate
+
+```bash
+docker compose exec app composer install --optimize-autoloader
+docker compose exec app php artisan key:generate --force
+docker compose exec app php artisan migrate --seed --force
+docker compose exec app chmod -R 777 storage bootstrap/cache
+```
+**If you want the seeded demo data** (sample customers/packages/invoices, same as
+local dev), the seeders depend on `fakerphp/faker`, which is a `require-dev`
+package — running `composer install --no-dev` (the usual production advice) makes
+the seed step fail with `Class "Faker\Factory" not found`. Either run
+`composer install` without `--no-dev` (what was done above), or skip `--seed` and
+create your own first admin/data instead for a from-scratch production instance.
+
+### 7. Build frontend assets
+
+There's no need to install Node.js on the host — use a disposable container:
+```bash
+docker run --rm -v "$(pwd)":/var/www/html -w /var/www/html node:20-alpine \
+  sh -c "npm install && npm run build"
+```
+This compiles Tailwind/Vite output into `public/build/`, which nginx serves
+directly (no Node process needs to keep running in production, unlike the
+`--profile dev-assets` Vite dev server used for local hot-reload).
+
+### 8. Firewall
+
+If the server runs `ufw`, confirm it isn't silently blocking the app **or**
+silently letting other stuff through — Docker's own iptables rules bypass ufw's
+default-deny policy for anything a container publishes to the host, so a port can
+be reachable from the internet even with no explicit `ufw allow` rule for it (this
+is exactly why step 4 removes MySQL/WhatsApp's host bindings rather than trusting
+ufw to block them). Add an explicit rule for the app port either way, for
+clarity:
+```bash
+sudo ufw allow 8090/tcp comment 'billing app'
+```
+
+### 9. Verify
+
+```bash
+curl -I http://localhost:8090/login          # from the server itself
+curl -I http://<server-ip>:8090/login        # from your own machine, confirms it's actually public
+```
+Both should return `200`. Log in with the seeded `admin@sebilling.test` / `password`
+(if you seeded demo data) and click around before considering the deploy done.
+
+### Updating an existing deployment
+
+Once the server is up and you push new commits, redeploy with this sequence —
+safe to run in full every time, since `composer install`/`npm run build` are fast
+no-ops when nothing relevant changed and `migrate` is a no-op with no new
+migrations:
+
+```bash
+ssh -i ~/.ssh/my_server_key -p 22 <user>@<server-ip>
+cd ~/billing-monitoring
+
+# 1. Pull the new code (private repo → use the deploy key, same as the initial clone)
+GIT_SSH_COMMAND="ssh -i ~/.ssh/github_deploy_key -o StrictHostKeyChecking=accept-new" \
+  git pull origin main
+
+# 2. Reinstall PHP deps (picks up composer.json/composer.lock changes)
+docker compose exec app composer install --optimize-autoloader
+
+# 3. Rebuild frontend assets (picks up any Blade/Tailwind/JS changes)
+docker run --rm -v "$(pwd)":/var/www/html -w /var/www/html node:20-alpine \
+  sh -c "npm install && npm run build"
+
+# 4. Run any new migrations
+docker compose exec app php artisan migrate --force
+
+# 5. Clear stale compiled config/view/route caches
+docker compose exec app php artisan config:clear
+docker compose exec app php artisan view:clear
+docker compose exec app php artisan route:clear
+
+# 6. Rebuild the image only if the Dockerfile itself changed (new PHP extension,
+#    base image bump, etc.) — otherwise skip straight to step 7
+docker compose build app worker scheduler
+docker compose up -d
+
+# 7. worker/scheduler are long-running daemons that only load code once at
+#    startup — restart them after EVERY deploy, code change or not, or they
+#    keep running the previous version indefinitely
+docker compose restart worker scheduler
+
+# 8. Only needed if step 6 actually recreated the app container: nginx resolves
+#    "app"'s IP once at startup and caches it, so a new app container ID means
+#    stale requests/502s until nginx is restarted too
+docker compose restart nginx
+```
+
+Steps 2, 3, and 6 are the only ones worth skipping deliberately (to save a minute
+or two) if you're certain the deploy is Blade/PHP-logic-only with no new Composer
+package, no frontend change, and no Dockerfile change — everything else in the
+list has no downside to always running.
+
+If a migration in the new code is destructive or the deploy is otherwise risky,
+back up the database first:
+```bash
+docker compose exec -T mysql mysqldump -u root -p"$(grep DB_ROOT_PASSWORD .env | cut -d= -f2)" billing_monitoring > backup-$(date +%Y%m%d-%H%M%S).sql
+```
+
+### Going further
+
+- **Real domain + HTTPS**: point a domain's DNS at the server, then either reuse
+  an existing system nginx as a reverse proxy to `127.0.0.1:8090` with Certbot for
+  the certificate, or see the "Temporary public domain (Cloudflare quick tunnel)"
+  section above for a zero-config HTTPS option without owning a domain at all.
+- **WhatsApp pairing**: still needs a one-time QR scan post-deploy — see
+  "WhatsApp engine — installation & running it" above; nothing about it differs
+  between local and production.
+- **Change the seeded admin password** (or disable seeded accounts) before
+  leaving a production deploy running long-term, since the default credentials
+  are documented in this very README.
+
 ## Services
 
 | Service     | Purpose                                              |

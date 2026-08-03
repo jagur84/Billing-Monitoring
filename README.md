@@ -288,6 +288,18 @@ docker compose exec -T mysql mysqldump -u root -p"$(grep DB_ROOT_PASSWORD .env |
   an existing system nginx as a reverse proxy to `127.0.0.1:8090` with Certbot for
   the certificate, or see the "Temporary public domain (Cloudflare quick tunnel)"
   section above for a zero-config HTTPS option without owning a domain at all.
+
+  **Gotcha if you go the system-nginx-reverse-proxy route**: there are now *two*
+  separate nginx instances in the request path — the system nginx (terminates
+  TLS, reverse-proxies to `127.0.0.1:8090`) and the nginx **inside** Docker
+  (`docker/nginx/app.conf`, tracked in this repo). Each has its own
+  `client_max_body_size`, defaulting to 1MB. Raising the limit in only one of
+  them still leaves uploads (logo, Excel import) failing with a `413` for
+  anything over 1MB — you have to add `client_max_body_size 20m;` to **both**:
+  this repo's `docker/nginx/app.conf` *and* the server's own
+  `/etc/nginx/sites-available/<your-domain>` (which Certbot generates and isn't
+  part of this repo, so it won't update on `git pull` — edit it directly on the
+  server, then `sudo nginx -t && sudo systemctl reload nginx`).
 - **WhatsApp pairing**: still needs a one-time QR scan post-deploy — see
   "WhatsApp engine — installation & running it" above; nothing about it differs
   between local and production.

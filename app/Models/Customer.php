@@ -21,12 +21,17 @@ class Customer extends Model
         'address',
         'package_id',
         'pppoe_username',
+        'pppoe_password',
         'router_id',
         'ip_address',
         'installation_date',
         'billing_due_day',
         'status',
         'notes',
+    ];
+
+    protected $hidden = [
+        'pppoe_password',
     ];
 
     protected function casts(): array

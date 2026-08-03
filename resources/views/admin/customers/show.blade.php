@@ -41,6 +41,7 @@
                 <div class="flex justify-between"><dt class="text-gray-500">Telepon</dt><dd class="text-gray-900">{{ $customer->phone ?? '-' }}</dd></div>
                 <div class="flex justify-between"><dt class="text-gray-500">Email</dt><dd class="text-gray-900">{{ $customer->email ?? '-' }}</dd></div>
                 <div class="flex justify-between"><dt class="text-gray-500">PPPoE</dt><dd class="text-gray-900">{{ $customer->pppoe_username ?? '-' }}</dd></div>
+                <div class="flex justify-between"><dt class="text-gray-500">Password PPPoE</dt><dd class="font-mono text-gray-900">{{ $customer->pppoe_password ?? '-' }}</dd></div>
                 <div class="flex justify-between"><dt class="text-gray-500">Router</dt><dd class="text-gray-900">{{ $customer->router?->name ?? '-' }}</dd></div>
                 <div class="flex justify-between"><dt class="text-gray-500">Jatuh Tempo</dt><dd class="text-gray-900">Tanggal {{ $customer->billing_due_day }}</dd></div>
                 <div><dt class="text-gray-500">Alamat</dt><dd class="mt-1 text-gray-900">{{ $customer->address ?? '-' }}</dd></div>

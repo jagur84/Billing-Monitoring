@@ -8,8 +8,8 @@
     </div>
 
     <div>
-        <x-input-label for="phone" value="Telepon" />
-        <x-text-input id="phone" name="phone" type="text" class="mt-1 block w-full" value="{{ old('phone', $customer?->phone) }}" />
+        <x-input-label for="phone" value="Telepon *" />
+        <x-text-input id="phone" name="phone" type="text" class="mt-1 block w-full" value="{{ old('phone', $customer?->phone) }}" required />
         <x-input-error :messages="$errors->get('phone')" class="mt-2" />
     </div>
 
@@ -32,8 +32,8 @@
     </div>
 
     <div>
-        <x-input-label for="package_id" value="Paket Langganan" />
-        <x-select-input id="package_id" name="package_id" class="mt-1 block w-full">
+        <x-input-label for="package_id" value="Paket Langganan *" />
+        <x-select-input id="package_id" name="package_id" class="mt-1 block w-full" required>
             <option value="">- Pilih Paket -</option>
             @foreach ($packages as $package)
                 <option value="{{ $package->id }}" @selected(old('package_id', $customer?->package_id) == $package->id)>
@@ -45,15 +45,21 @@
     </div>
 
     <div>
-        <x-input-label for="billing_due_day" value="Tanggal Jatuh Tempo" />
+        <x-input-label for="billing_due_day" value="Tanggal Jatuh Tempo *" />
         <x-text-input id="billing_due_day" name="billing_due_day" type="number" min="1" max="28" class="mt-1 block w-full" value="{{ old('billing_due_day', $customer?->billing_due_day ?? 1) }}" required />
         <x-input-error :messages="$errors->get('billing_due_day')" class="mt-2" />
     </div>
 
     <div>
-        <x-input-label for="pppoe_username" value="Username PPPoE" />
-        <x-text-input id="pppoe_username" name="pppoe_username" type="text" class="mt-1 block w-full" value="{{ old('pppoe_username', $customer?->pppoe_username) }}" />
+        <x-input-label for="pppoe_username" value="Username PPPoE *" />
+        <x-text-input id="pppoe_username" name="pppoe_username" type="text" class="mt-1 block w-full" value="{{ old('pppoe_username', $customer?->pppoe_username) }}" required />
         <x-input-error :messages="$errors->get('pppoe_username')" class="mt-2" />
+    </div>
+
+    <div>
+        <x-input-label for="pppoe_password" value="Password PPPoE *" />
+        <x-text-input id="pppoe_password" name="pppoe_password" type="text" class="mt-1 block w-full" value="{{ old('pppoe_password', $customer?->pppoe_password) }}" required />
+        <x-input-error :messages="$errors->get('pppoe_password')" class="mt-2" />
     </div>
 
     <div>

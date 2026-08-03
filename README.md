@@ -23,6 +23,7 @@ docker compose up -d
 docker compose exec app composer install   # populates the vendor named volume
 docker compose exec app php artisan key:generate
 docker compose exec app php artisan migrate --seed
+docker compose exec app php artisan storage:link
 docker compose exec app chmod -R 777 storage bootstrap/cache
 npm install && npm run build               # or: docker compose --profile dev-assets up node
 ```
@@ -183,8 +184,14 @@ they're just failing on a missing `vendor/autoload.php` until the next step runs
 docker compose exec app composer install --optimize-autoloader
 docker compose exec app php artisan key:generate --force
 docker compose exec app php artisan migrate --seed --force
+docker compose exec app php artisan storage:link
 docker compose exec app chmod -R 777 storage bootstrap/cache
 ```
+`storage:link` creates the `public/storage` → `storage/app/public` symlink that
+serves uploaded files (logos, etc.) — skip it and every such URL 404s even though
+the underlying file is right there in `storage/app/public/`, which looks exactly
+like a broken/missing upload rather than a missing setup step.
+
 **If you want the seeded demo data** (sample customers/packages/invoices, same as
 local dev), the seeders depend on `fakerphp/faker`, which is a `require-dev`
 package — running `composer install --no-dev` (the usual production advice) makes

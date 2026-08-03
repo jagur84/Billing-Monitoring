@@ -39,6 +39,7 @@
                         <input id="logo" name="logo" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" class="block w-full text-sm text-gray-600 file:mr-4 file:rounded-md file:border-0 file:bg-gray-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-gray-700 hover:file:bg-gray-200">
                     </div>
                     <x-input-error :messages="$errors->get('logo')" class="mt-2" />
+                    <p class="mt-2 text-xs text-gray-500">PNG, JPG, WebP, atau SVG, maks 2MB.</p>
                     @if ($logoPath)
                         <label class="mt-2 flex items-center gap-2 text-sm text-gray-600">
                             <input type="checkbox" name="remove_logo" value="1" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">

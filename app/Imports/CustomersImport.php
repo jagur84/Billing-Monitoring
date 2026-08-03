@@ -28,13 +28,14 @@ class CustomersImport implements SkipsOnFailure, ToModel, WithHeadingRow, WithVa
             'customer_code' => Customer::generateCode(),
             'name' => trim((string) $row['nama']),
             'email' => $this->blankToNull($row['email'] ?? null),
-            'phone' => $this->blankToNull($row['telepon'] ?? null),
+            'phone' => trim((string) $row['telepon']),
             'nik' => $this->blankToNull($row['nik'] ?? null),
             'address' => $this->blankToNull($row['alamat'] ?? null),
-            'package_id' => $this->resolvePackageId($row['paket'] ?? null),
-            'pppoe_username' => $this->blankToNull($row['username_pppoe'] ?? null),
+            'package_id' => $this->resolvePackageId($row['paket']),
+            'pppoe_username' => trim((string) $row['username_pppoe']),
+            'pppoe_password' => trim((string) $row['password_pppoe']),
             'installation_date' => $this->parseDate($row['tanggal_instalasi'] ?? null),
-            'billing_due_day' => $this->resolveBillingDueDay($row['jatuh_tempo'] ?? null),
+            'billing_due_day' => (int) $row['jatuh_tempo'],
             'status' => $this->resolveStatus($row['status'] ?? null),
         ]);
     }
@@ -44,8 +45,16 @@ class CustomersImport implements SkipsOnFailure, ToModel, WithHeadingRow, WithVa
         return [
             'nama' => ['required', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255'],
-            'telepon' => ['nullable', 'string', 'max:30'],
+            'telepon' => ['required', 'string', 'max:30'],
             'nik' => ['nullable', 'string', 'max:30'],
+            'paket' => ['required', 'string', function ($attribute, $value, $fail) {
+                if (! Package::whereRaw('LOWER(name) = ?', [Str::lower(trim($value))])->exists()) {
+                    $fail('Paket "'.$value.'" tidak ditemukan.');
+                }
+            }],
+            'username_pppoe' => ['required', 'string', 'max:255'],
+            'password_pppoe' => ['required', 'string', 'max:255'],
+            'jatuh_tempo' => ['required', 'integer', 'min:1', 'max:28'],
         ];
     }
 
@@ -56,6 +65,10 @@ class CustomersImport implements SkipsOnFailure, ToModel, WithHeadingRow, WithVa
             'email' => 'Email',
             'telepon' => 'Telepon',
             'nik' => 'NIK',
+            'paket' => 'Paket',
+            'username_pppoe' => 'Username PPPoE',
+            'password_pppoe' => 'Password PPPoE',
+            'jatuh_tempo' => 'Jatuh Tempo',
         ];
     }
 
@@ -66,22 +79,9 @@ class CustomersImport implements SkipsOnFailure, ToModel, WithHeadingRow, WithVa
         return $value === '' ? null : $value;
     }
 
-    private function resolvePackageId(mixed $value): ?int
+    private function resolvePackageId(string $value): ?int
     {
-        $name = $this->blankToNull($value);
-
-        if ($name === null) {
-            return null;
-        }
-
-        return Package::whereRaw('LOWER(name) = ?', [Str::lower($name)])->value('id');
-    }
-
-    private function resolveBillingDueDay(mixed $value): int
-    {
-        $day = (int) $value;
-
-        return $day >= 1 && $day <= 28 ? $day : 10;
+        return Package::whereRaw('LOWER(name) = ?', [Str::lower(trim($value))])->value('id');
     }
 
     private function resolveStatus(mixed $value): string

@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Services\Notifications\TemplateRenderer;
 use App\Services\Payment\TripayService;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -180,13 +181,63 @@ class SettingsController extends Controller
 
         if ($request->hasFile('logo')) {
             $this->deleteLogoFile();
-            Setting::set('app_logo_path', $request->file('logo')->store('branding', 'public'));
+            Setting::set('app_logo_path', $this->storeResizedLogo($request->file('logo')));
         } elseif ($request->boolean('remove_logo')) {
             $this->deleteLogoFile();
             Setting::forget('app_logo_path');
         }
 
         return redirect()->route('settings.general')->with('status', 'Pengaturan aplikasi berhasil disimpan.');
+    }
+
+    /**
+     * SVG is stored as-is (vector, nothing to resize). Raster formats are downscaled
+     * to fit within 512x512 — preserving aspect ratio and never upscaling a smaller
+     * image — so an oversized upload never ends up served at full resolution.
+     */
+    private function storeResizedLogo(UploadedFile $file): string
+    {
+        if ($file->getClientMimeType() === 'image/svg+xml' || strtolower($file->getClientOriginalExtension()) === 'svg') {
+            return $file->store('branding', 'public');
+        }
+
+        $source = @imagecreatefromstring(file_get_contents($file->getRealPath()));
+
+        if (! $source) {
+            return $file->store('branding', 'public');
+        }
+
+        $width = imagesx($source);
+        $height = imagesy($source);
+        $maxDimension = 512;
+
+        if ($width > $maxDimension || $height > $maxDimension) {
+            $ratio = min($maxDimension / $width, $maxDimension / $height);
+            $newWidth = (int) round($width * $ratio);
+            $newHeight = (int) round($height * $ratio);
+
+            $resized = imagecreatetruecolor($newWidth, $newHeight);
+            imagealphablending($resized, false);
+            imagesavealpha($resized, true);
+            imagecopyresampled($resized, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+            imagedestroy($source);
+            $source = $resized;
+        }
+
+        $extension = strtolower($file->getClientOriginalExtension()) ?: 'png';
+        $filename = 'branding/'.uniqid('logo_').'.'.($extension === 'jpg' ? 'jpeg' : $extension);
+        Storage::disk('public')->makeDirectory('branding');
+        $fullPath = Storage::disk('public')->path($filename);
+
+        match ($extension) {
+            'jpg', 'jpeg' => imagejpeg($source, $fullPath, 90),
+            'webp' => imagewebp($source, $fullPath, 90),
+            default => imagepng($source, $fullPath),
+        };
+
+        imagedestroy($source);
+
+        return $filename;
     }
 
     private function deleteLogoFile(): void

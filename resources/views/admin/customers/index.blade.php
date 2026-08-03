@@ -101,7 +101,7 @@
                 <input id="import_file" name="file" type="file" accept=".xlsx,.xls,.csv" required
                     class="mt-1 block w-full rounded-md border-gray-300 text-sm text-gray-700 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100">
                 <x-input-error :messages="$errors->get('file')" class="mt-2" />
-                <p class="mt-2 text-xs text-gray-500">Kolom wajib: Nama. Kolom lain boleh dikosongkan. Setiap baris akan ditambahkan sebagai pelanggan baru dengan kode otomatis.</p>
+                <p class="mt-2 text-xs text-gray-500">Kolom wajib: Nama, Telepon, Paket (harus sudah ada di sistem), Username PPPoE, Password PPPoE, dan Jatuh Tempo. Kolom lain boleh dikosongkan. Setiap baris akan ditambahkan sebagai pelanggan baru dengan kode otomatis.</p>
             </div>
 
             <div class="mt-6 flex justify-end gap-3">

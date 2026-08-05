@@ -11,6 +11,7 @@ use App\Models\Package;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
@@ -68,6 +69,7 @@ class SendInvoiceRemindersTest extends TestCase
     {
         Mail::fake();
         Bus::fake();
+        Http::fake(['*' => Http::response(['connected' => true])]);
         Carbon::setTestNow('2026-07-10');
 
         $invoice = $this->makeInvoice('2026-07-10');
@@ -77,6 +79,47 @@ class SendInvoiceRemindersTest extends TestCase
         Mail::assertQueued(InvoiceReminderMail::class, fn ($mail) => $mail->stage === 'reminder_h0');
         Bus::assertDispatched(SendWhatsAppMessage::class);
         $this->assertTrue(NotificationLog::alreadySent($invoice, 'whatsapp', 'reminder_h0'));
+    }
+
+    public function test_whatsapp_reminders_are_staggered_with_an_increasing_delay(): void
+    {
+        Mail::fake();
+        Bus::fake();
+        Http::fake(['*' => Http::response(['connected' => true])]);
+        Carbon::setTestNow('2026-07-10 00:00:00');
+
+        $this->makeInvoice('2026-07-10', phone: '081111111111');
+        $this->makeInvoice('2026-07-10', phone: '082222222222');
+        $this->makeInvoice('2026-07-10', phone: '083333333333');
+
+        $this->artisan('notifications:send-reminders')->assertSuccessful();
+
+        $delaySeconds = config('whatsapp.reminder_delay_seconds');
+        $offsets = [];
+
+        Bus::assertDispatched(SendWhatsAppMessage::class, function ($job) use (&$offsets) {
+            $offsets[] = $job->delay->getTimestamp() - now()->getTimestamp();
+
+            return true;
+        });
+
+        sort($offsets);
+        $this->assertSame([0, $delaySeconds, $delaySeconds * 2], $offsets);
+    }
+
+    public function test_whatsapp_reminders_are_skipped_when_the_engine_is_disconnected(): void
+    {
+        Mail::fake();
+        Bus::fake();
+        Http::fake(['*' => Http::response(['connected' => false])]);
+        Carbon::setTestNow('2026-07-10');
+
+        $invoice = $this->makeInvoice('2026-07-10');
+
+        $this->artisan('notifications:send-reminders')->assertSuccessful();
+
+        Bus::assertNotDispatched(SendWhatsAppMessage::class);
+        $this->assertFalse(NotificationLog::alreadySent($invoice, 'whatsapp', 'reminder_h0'));
     }
 
     public function test_no_reminder_fires_outside_configured_offsets(): void
@@ -97,6 +140,7 @@ class SendInvoiceRemindersTest extends TestCase
     {
         Mail::fake();
         Bus::fake();
+        Http::fake(['*' => Http::response(['connected' => true])]);
         Carbon::setTestNow('2026-07-10');
 
         $this->makeInvoice('2026-07-10');

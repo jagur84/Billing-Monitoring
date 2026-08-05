@@ -64,6 +64,34 @@ class InvoiceOutstandingBalanceTest extends TestCase
         $this->assertFalse(Invoice::where('customer_id', $b->id)->exists());
     }
 
+    public function test_resubmitting_the_same_customer_and_period_does_not_create_a_duplicate(): void
+    {
+        Carbon::setTestNow('2026-08-05');
+        $this->actingAsSuperAdmin();
+
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 130000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-O5', 'name' => 'Customer O5', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $this->post(route('invoices.outstanding-balance.store'), [
+            'month' => 7, 'year' => 2026, 'amounts' => [$customer->id => '30000'],
+        ]);
+
+        // Admin accidentally submits the same period for the same customer a second time
+        // (e.g. double form submit, or re-entering data already saved earlier).
+        $response = $this->post(route('invoices.outstanding-balance.store'), [
+            'month' => 7, 'year' => 2026, 'amounts' => [$customer->id => '30000'],
+        ]);
+
+        $response->assertRedirect();
+        $this->assertSame(1, Invoice::where('customer_id', $customer->id)->where('period_month', 7)->count());
+        $this->assertSame(30000.0, (float) Invoice::where('customer_id', $customer->id)->first()->total_amount);
+    }
+
     public function test_rejects_current_or_future_period(): void
     {
         Carbon::setTestNow('2026-08-05');

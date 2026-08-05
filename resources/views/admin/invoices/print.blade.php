@@ -108,10 +108,21 @@
                             <td class="py-1 text-emerald-600">Sudah Dibayar</td>
                             <td class="py-1 text-right text-emerald-600">Rp {{ number_format($totalPaid, 0, ',', '.') }}</td>
                         </tr>
-                        <tr>
-                            <td class="py-1 font-semibold text-rose-600">Sisa Tagihan</td>
-                            <td class="py-1 text-right font-semibold text-rose-600">Rp {{ number_format($remaining, 0, ',', '.') }}</td>
-                        </tr>
+                        @if ($invoice->carry_over_amount > 0 && $remainingBreakdown['old'] > 0)
+                            <tr>
+                                <td class="py-1 text-rose-600">Sisa Tagihan Lama</td>
+                                <td class="py-1 text-right text-rose-600">Rp {{ number_format($remainingBreakdown['old'], 0, ',', '.') }}</td>
+                            </tr>
+                            <tr>
+                                <td class="py-1 font-semibold text-rose-600">Sisa Tagihan Bulan Ini</td>
+                                <td class="py-1 text-right font-semibold text-rose-600">Rp {{ number_format($remainingBreakdown['current'], 0, ',', '.') }}</td>
+                            </tr>
+                        @else
+                            <tr>
+                                <td class="py-1 font-semibold text-rose-600">Sisa Tagihan</td>
+                                <td class="py-1 text-right font-semibold text-rose-600">Rp {{ number_format($remaining, 0, ',', '.') }}</td>
+                            </tr>
+                        @endif
                     @endif
                 </tfoot>
             </table>

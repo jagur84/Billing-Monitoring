@@ -245,6 +245,7 @@ class InvoiceController extends Controller
             'invoice' => $invoice,
             'totalPaid' => $totalPaid,
             'remaining' => max((float) $invoice->total_amount - $totalPaid, 0),
+            'remainingBreakdown' => $this->invoiceService->remainingBreakdown($invoice),
             'bankAccounts' => BankAccount::where('is_active', true)->orderBy('bank_name')->get(),
         ]);
     }
@@ -259,6 +260,7 @@ class InvoiceController extends Controller
             'invoice' => $invoice,
             'totalPaid' => $totalPaid,
             'remaining' => max((float) $invoice->total_amount - $totalPaid, 0),
+            'remainingBreakdown' => $this->invoiceService->remainingBreakdown($invoice),
             'bankAccounts' => BankAccount::where('is_active', true)->orderBy('bank_name')->get(),
         ]);
     }

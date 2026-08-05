@@ -69,7 +69,12 @@
                     <div class="flex justify-between border-t border-gray-100 pt-2 text-base font-semibold text-gray-900"><span>Total</span><span>Rp {{ number_format($invoice->total_amount, 0, ',', '.') }}</span></div>
                     @if ($totalPaid > 0 && $invoice->status !== 'paid')
                         <div class="flex justify-between text-emerald-600"><span>Sudah Dibayar</span><span>Rp {{ number_format($totalPaid, 0, ',', '.') }}</span></div>
-                        <div class="flex justify-between font-semibold text-rose-600"><span>Sisa Tagihan</span><span>Rp {{ number_format($remaining, 0, ',', '.') }}</span></div>
+                        @if ($invoice->carry_over_amount > 0 && $remainingBreakdown['old'] > 0)
+                            <div class="flex justify-between text-rose-600"><span>Sisa Tagihan Lama</span><span>Rp {{ number_format($remainingBreakdown['old'], 0, ',', '.') }}</span></div>
+                            <div class="flex justify-between font-semibold text-rose-600"><span>Sisa Tagihan Bulan Ini</span><span>Rp {{ number_format($remainingBreakdown['current'], 0, ',', '.') }}</span></div>
+                        @else
+                            <div class="flex justify-between font-semibold text-rose-600"><span>Sisa Tagihan</span><span>Rp {{ number_format($remaining, 0, ',', '.') }}</span></div>
+                        @endif
                     @endif
                 </div>
             </x-panel>
@@ -132,6 +137,11 @@
 
                 <h2 class="text-lg font-medium text-gray-900">Catat Pembayaran</h2>
                 <p class="mt-1 text-sm text-gray-500">Sisa tagihan saat ini: <span class="font-semibold text-gray-900">Rp {{ number_format($remaining, 0, ',', '.') }}</span></p>
+                @if ($invoice->carry_over_amount > 0 && $remainingBreakdown['old'] > 0)
+                    <p class="mt-1 text-xs text-gray-500">
+                        Termasuk sisa tagihan lama Rp {{ number_format($remainingBreakdown['old'], 0, ',', '.') }} — pembayaran akan memotong sisa lama ini lebih dulu.
+                    </p>
+                @endif
 
                 <div class="mt-6 space-y-4">
                     <div>

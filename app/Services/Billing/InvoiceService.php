@@ -272,6 +272,25 @@ class InvoiceService
     }
 
     /**
+     * Splits this invoice's remaining balance into what's still owed from the carried-over
+     * balance vs this period's own package charge — any payment received is applied against
+     * the carry-over portion first. Purely a display breakdown (the invoice only has one
+     * total_amount/paid ledger); old + current always sums to max(total_amount - paid, 0).
+     */
+    public function remainingBreakdown(Invoice $invoice): array
+    {
+        $paid = $this->totalPaid($invoice);
+        $carryOver = (float) $invoice->carry_over_amount;
+        $currentCharge = (float) $invoice->total_amount - $carryOver;
+
+        $old = max($carryOver - $paid, 0);
+        $paidTowardCurrent = max($paid - $carryOver, 0);
+        $current = max($currentCharge - $paidTowardCurrent, 0);
+
+        return ['old' => round($old, 2), 'current' => round($current, 2)];
+    }
+
+    /**
      * Recompute the invoice's status from its accumulated paid-payments total: fully settled
      * flips it to "paid" (and fires InvoicePaid only on that transition), a non-zero partial
      * total marks it "partial", otherwise it's left as unpaid/overdue/cancelled.
@@ -371,6 +390,7 @@ class InvoiceService
             'invoice' => $invoice,
             'totalPaid' => $totalPaid,
             'remaining' => max((float) $invoice->total_amount - $totalPaid, 0),
+            'remainingBreakdown' => $this->remainingBreakdown($invoice),
             'bankAccounts' => BankAccount::where('is_active', true)->orderBy('bank_name')->get(),
         ])->output();
     }

@@ -242,6 +242,85 @@ class InvoiceServiceTest extends TestCase
         $this->assertSame(180000.0, (float) $augustInvoice->total_amount); // 130k + 20k + 30k
     }
 
+    public function test_carrying_a_balance_forward_across_three_consecutive_months_never_leaves_more_than_one_invoice_outstanding(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 100000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-00015', 'name' => 'Test Customer 15', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $service = app(InvoiceService::class);
+
+        $june = $service->generateForCustomer($customer, 6, 2026);
+        $july = $service->generateForCustomer($customer, 7, 2026);
+        $august = $service->generateForCustomer($customer, 8, 2026);
+        $september = $service->generateForCustomer($customer, 9, 2026);
+
+        // Every month rolls the previous balance forward exactly once: 100k, then 200k,
+        // then 300k, then 400k — never double-counted, never left behind on an old invoice.
+        $june->refresh();
+        $july->refresh();
+        $august->refresh();
+        $september->refresh();
+
+        $this->assertSame('paid', $june->status);
+        $this->assertSame('paid', $july->status);
+        $this->assertSame('paid', $august->status);
+        $this->assertSame('unpaid', $september->status);
+
+        $this->assertSame(100000.0, (float) $june->total_amount);
+        $this->assertSame(200000.0, (float) $july->total_amount);
+        $this->assertSame(300000.0, (float) $august->total_amount);
+        $this->assertSame(400000.0, (float) $september->total_amount);
+
+        // Only one invoice should ever be outstanding at a time for this customer, and its
+        // remaining balance should equal the full running total — not some multiple of it.
+        $outstanding = Invoice::where('customer_id', $customer->id)
+            ->whereIn('status', ['unpaid', 'overdue', 'partial'])
+            ->get();
+
+        $this->assertCount(1, $outstanding);
+        $this->assertSame($september->id, $outstanding->first()->id);
+        $this->assertSame(400000.0, (float) $outstanding->sum('total_amount'));
+    }
+
+    public function test_remaining_breakdown_applies_payments_to_the_carried_over_balance_first(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 150000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-00016', 'name' => 'Test Customer 16', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $service = app(InvoiceService::class);
+        $service->generateForCustomer($customer, 7, 2026); // 150k, left unpaid
+        $august = $service->generateForCustomer($customer, 8, 2026); // 150k + 150k carried = 300k
+
+        $this->assertSame(150000.0, (float) $august->carry_over_amount);
+
+        // No payment yet: all of the old balance, plus all of this month's, still owed.
+        $breakdown = $service->remainingBreakdown($august);
+        $this->assertSame(150000.0, $breakdown['old']);
+        $this->assertSame(150000.0, $breakdown['current']);
+
+        // Partial payment smaller than the carried-over amount: only chips away at "old".
+        $service->recordManualPayment($august, 50000, null);
+        $breakdown = $service->remainingBreakdown($august->fresh());
+        $this->assertSame(100000.0, $breakdown['old']);
+        $this->assertSame(150000.0, $breakdown['current']);
+
+        // Payment that finishes off the old balance and spills into the current charge.
+        $service->recordManualPayment($august, 120000, null);
+        $breakdown = $service->remainingBreakdown($august->fresh());
+        $this->assertSame(0.0, $breakdown['old']);
+        $this->assertSame(130000.0, $breakdown['current']);
+    }
+
     public function test_recording_outstanding_balance_skips_a_period_that_already_has_an_invoice(): void
     {
         $package = Package::create([

@@ -65,6 +65,29 @@ class GenerateUpcomingInvoicesTest extends TestCase
         Mail::assertNothingQueued();
     }
 
+    public function test_it_still_generates_after_the_configured_offset_day_has_passed(): void
+    {
+        // Regression: a customer imported after the exact "N days before due" trigger day
+        // (e.g. bulk import 5 days before due, with the offset configured at 7) must still
+        // get an invoice on the next run rather than silently missing the whole billing cycle.
+        Mail::fake();
+        Carbon::setTestNow('2026-08-05'); // 5 days before Aug 10 due date, offset is 7
+
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 150000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-00004', 'name' => 'Test Customer 4', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $this->artisan('invoices:generate-upcoming')->assertSuccessful();
+
+        $invoice = Invoice::where('customer_id', $customer->id)->first();
+        $this->assertNotNull($invoice);
+        $this->assertSame(8, $invoice->period_month);
+    }
+
     public function test_it_does_not_send_duplicate_invoice_created_email_on_repeated_runs(): void
     {
         Mail::fake();

@@ -27,7 +27,7 @@ class GenerateUpcomingInvoices extends Command
                 foreach ($customers as $customer) {
                     $nextDue = $invoiceService->nextDueDateFor($customer);
 
-                    if ($invoiceService->daysUntil($today, $nextDue) !== $daysBefore) {
+                    if ($invoiceService->daysUntil($today, $nextDue) > $daysBefore) {
                         continue;
                     }
 

@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Exports\OutstandingBalanceImportTemplateExport;
 use App\Http\Controllers\Controller;
-use App\Imports\OutstandingBalanceImport;
 use App\Jobs\SendWhatsAppMessage;
 use App\Mail\InvoiceReminderMail;
 use App\Models\BankAccount;
@@ -15,9 +13,9 @@ use App\Services\Billing\InvoiceService;
 use App\Services\Notifications\ReminderStageMessages;
 use App\Services\Notifications\TemplateRenderer;
 use App\Services\Payment\TripayService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
-use Maatwebsite\Excel\Facades\Excel;
 
 class InvoiceController extends Controller
 {
@@ -144,37 +142,96 @@ class InvoiceController extends Controller
         );
     }
 
-    public function importOutstandingTemplate()
+    /**
+     * "Sisa Tagihan" screen: pick a past period, then enter each customer's remaining balance
+     * from the old system directly in a grid (no file upload) — used for migrating customers
+     * in from a previous billing system.
+     */
+    public function outstandingBalance(Request $request)
     {
-        return Excel::download(new OutstandingBalanceImportTemplateExport, 'contoh-format-import-saldo-sisa.xlsx');
-    }
+        $month = null;
+        $year = null;
 
-    public function importOutstanding(Request $request)
-    {
-        $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
-        ]);
-
-        $import = new OutstandingBalanceImport($this->invoiceService);
-        Excel::import($import, $request->file('file'));
-
-        $failures = $import->failures();
-
-        if ($failures->isEmpty()) {
-            return back()->with('status', "Berhasil mengimpor {$import->imported} saldo sisa.");
+        if ($request->filled('period') && str_contains($request->string('period'), '-')) {
+            [$month, $year] = array_map('intval', explode('-', $request->string('period')));
         }
 
-        $errors = $failures->map(function ($failure) {
-            $row = $failure->row();
-            $messages = implode(', ', $failure->errors());
+        $customers = null;
 
-            return "Baris {$row}: {$messages}";
-        })->implode(' | ');
+        if ($month && $year) {
+            $customers = Customer::where('status', '!=', 'inactive')
+                ->whereNotNull('package_id')
+                ->orderBy('name')
+                ->get();
+        }
 
-        return back()->with(
+        return view('admin.invoices.outstanding-balance', [
+            'month' => $month,
+            'year' => $year,
+            'customers' => $customers,
+            'periodOptions' => $this->pastPeriodOptions(),
+        ]);
+    }
+
+    public function outstandingBalanceStore(Request $request)
+    {
+        $data = $request->validate([
+            'month' => ['required', 'integer', 'min:1', 'max:12'],
+            'year' => ['required', 'integer', 'min:2020', 'max:2100'],
+            'amounts' => ['nullable', 'array'],
+            'amounts.*' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $period = Carbon::create($data['year'], $data['month'], 1);
+
+        if (! $period->lt(now()->startOfMonth())) {
+            return back()->with('error', 'Periode harus sebelum bulan berjalan.');
+        }
+
+        $saved = 0;
+        $skipped = 0;
+
+        foreach ($data['amounts'] ?? [] as $customerId => $amount) {
+            $customer = Customer::find($customerId);
+
+            if (! $customer || (float) $amount <= 0) {
+                continue;
+            }
+
+            $invoice = $this->invoiceService->recordOutstandingBalance($customer, (int) $data['month'], (int) $data['year'], (float) $amount);
+
+            if ($invoice) {
+                $saved++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        return redirect()->route('invoices.outstanding-balance', ['period' => "{$data['month']}-{$data['year']}"])->with(
             'status',
-            "Berhasil mengimpor {$import->imported} saldo sisa. ".$failures->count().' baris dilewati karena tidak valid.'
-        )->with('import_errors', $errors);
+            "{$saved} saldo sisa berhasil disimpan. {$skipped} dilewati (sudah ada tagihan untuk periode tersebut)."
+        );
+    }
+
+    /**
+     * Past months only (never the current or a future one), furthest-first is avoided since
+     * admins almost always need last month first — newest-past-month first, going back 24 months.
+     */
+    private function pastPeriodOptions(): array
+    {
+        $options = [];
+        $cursor = now()->startOfMonth()->subMonthNoOverflow();
+
+        for ($i = 0; $i < 24; $i++) {
+            $options[] = [
+                'month' => $cursor->month,
+                'year' => $cursor->year,
+                'label' => $cursor->translatedFormat('F Y'),
+            ];
+            $cursor = $cursor->copy()->subMonthNoOverflow();
+        }
+
+        return $options;
     }
 
     public function show(Invoice $invoice)

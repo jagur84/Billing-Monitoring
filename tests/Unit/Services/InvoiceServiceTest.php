@@ -110,6 +110,76 @@ class InvoiceServiceTest extends TestCase
         $this->assertSame(150000.0, (float) $invoice->total_amount);
     }
 
+    public function test_recording_outstanding_balance_retroactively_tops_up_an_already_existing_later_invoice(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 130000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-00012', 'name' => 'Test Customer 12', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $service = app(InvoiceService::class);
+
+        // August invoice already exists (generated before the July balance was entered) —
+        // mirrors an admin migrating a customer's old data in after their normal billing
+        // already generated the next invoice.
+        $augustInvoice = $service->generateForCustomer($customer, 8, 2026);
+        $this->assertSame(130000.0, (float) $augustInvoice->total_amount);
+
+        $julyInvoice = $service->recordOutstandingBalance($customer, 7, 2026, 30000);
+
+        $this->assertNotNull($julyInvoice);
+        $julyInvoice->refresh();
+        $this->assertSame('paid', $julyInvoice->status);
+        $this->assertSame(1, $julyInvoice->payments()->where('gateway', 'carry_over')->count());
+
+        $augustInvoice->refresh();
+        $this->assertSame(30000.0, (float) $augustInvoice->carry_over_amount);
+        $this->assertSame(160000.0, (float) $augustInvoice->total_amount);
+    }
+
+    public function test_multiple_months_of_outstanding_balance_are_all_folded_into_the_next_invoice(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 130000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-00013', 'name' => 'Test Customer 13', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $service = app(InvoiceService::class);
+
+        $service->recordOutstandingBalance($customer, 6, 2026, 20000);
+        $service->recordOutstandingBalance($customer, 7, 2026, 30000);
+
+        $augustInvoice = $service->generateForCustomer($customer, 8, 2026);
+
+        $this->assertSame(50000.0, (float) $augustInvoice->carry_over_amount);
+        $this->assertSame(180000.0, (float) $augustInvoice->total_amount); // 130k + 20k + 30k
+    }
+
+    public function test_recording_outstanding_balance_skips_a_period_that_already_has_an_invoice(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 130000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-00014', 'name' => 'Test Customer 14', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $service = app(InvoiceService::class);
+        $service->generateForCustomer($customer, 7, 2026);
+
+        $result = $service->recordOutstandingBalance($customer, 7, 2026, 30000);
+
+        $this->assertNull($result);
+        $this->assertSame(1, Invoice::where('customer_id', $customer->id)->where('period_month', 7)->count());
+    }
+
     public function test_manual_payment_marks_invoice_paid(): void
     {
         $package = Package::create([

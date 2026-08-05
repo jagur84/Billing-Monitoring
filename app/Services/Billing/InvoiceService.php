@@ -37,11 +37,6 @@ class InvoiceService
         $package = $customer->package;
         $amount = (float) $package->price;
         $tax = round($amount * ((float) $package->tax_percent / 100), 2);
-
-        [$carryOver, $carryOverNote, $sourceInvoices] = $this->pendingBalanceFor($customer);
-
-        $total = $amount + $tax + $carryOver;
-
         $dueDay = min($customer->billing_due_day, Carbon::create($year, $month, 1)->daysInMonth);
 
         $invoice = Invoice::create([
@@ -54,18 +49,98 @@ class InvoiceService
             'amount' => $amount,
             'tax_amount' => $tax,
             'discount_amount' => 0,
-            'carry_over_amount' => $carryOver,
-            'carry_over_note' => $carryOverNote,
-            'total_amount' => $total,
+            'carry_over_amount' => 0,
+            'total_amount' => $amount + $tax,
             'due_date' => Carbon::create($year, $month, $dueDay),
             'status' => 'unpaid',
         ]);
 
-        if ($carryOver > 0) {
-            $this->closeCarriedOverInvoices($sourceInvoices, $invoice);
+        $this->applyOutstandingCarryOver($customer);
+
+        return $invoice->fresh();
+    }
+
+    /**
+     * Manually record a customer's known remaining balance from a past period (e.g. migrating
+     * a customer in from an old system) as a plain unpaid invoice for that period. Immediately
+     * tries to fold it into whichever invoice is currently this customer's latest open one —
+     * if that invoice was already generated earlier (the common migration case), it gets
+     * retroactively topped up rather than waiting for the customer's next billing cycle.
+     */
+    public function recordOutstandingBalance(Customer $customer, int $month, int $year, float $amount): ?Invoice
+    {
+        if ($amount <= 0) {
+            return null;
         }
 
-        return $invoice;
+        $exists = Invoice::where('customer_id', $customer->id)
+            ->where('period_month', $month)
+            ->where('period_year', $year)
+            ->exists();
+
+        if ($exists) {
+            return null;
+        }
+
+        $dueDay = min($customer->billing_due_day, Carbon::create($year, $month, 1)->daysInMonth);
+        $amount = round($amount, 2);
+
+        $invoice = Invoice::create([
+            'invoice_number' => $this->generateInvoiceNumber($month, $year),
+            'customer_id' => $customer->id,
+            'package_id' => $customer->package_id,
+            'package_name_snapshot' => $customer->package?->name,
+            'period_month' => $month,
+            'period_year' => $year,
+            'amount' => $amount,
+            'tax_amount' => 0,
+            'discount_amount' => 0,
+            'carry_over_amount' => 0,
+            'total_amount' => $amount,
+            'due_date' => Carbon::create($year, $month, $dueDay),
+            'status' => 'unpaid',
+            'notes' => 'Migrasi saldo sisa dari sistem lama',
+        ]);
+
+        $this->applyOutstandingCarryOver($customer);
+
+        return $invoice->fresh();
+    }
+
+    /**
+     * Fold every one of a customer's still-outstanding invoices into whichever invoice is
+     * currently their latest open one (by period) — closing the older ones out via a synthetic
+     * carry_over payment. Called both right after a brand new invoice is generated (the new
+     * invoice naturally becomes the latest) and right after a past-period balance is entered
+     * manually (which may need to retroactively top up an invoice generated earlier).
+     */
+    public function applyOutstandingCarryOver(Customer $customer): void
+    {
+        $target = Invoice::where('customer_id', $customer->id)
+            ->whereIn('status', ['unpaid', 'overdue', 'partial'])
+            ->orderByDesc('period_year')
+            ->orderByDesc('period_month')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $target) {
+            return;
+        }
+
+        [$carryOver, $note, $sourceInvoices] = $this->pendingBalanceFor($customer, $target->id);
+
+        if ($carryOver <= 0) {
+            return;
+        }
+
+        $target->update([
+            'carry_over_amount' => round((float) $target->carry_over_amount + $carryOver, 2),
+            'carry_over_note' => $target->carry_over_note ? "{$target->carry_over_note}; {$note}" : $note,
+            'total_amount' => round((float) $target->total_amount + $carryOver, 2),
+        ]);
+
+        $this->closeCarriedOverInvoices($sourceInvoices, $target);
+        $this->refreshPaymentStatus($target->fresh());
     }
 
     /**
@@ -85,14 +160,15 @@ class InvoiceService
     }
 
     /**
-     * Sum of this customer's still-outstanding older invoices (unpaid/overdue/partial),
-     * to fold into a newly generated invoice as a carry-over. Returns [amount, note, invoices]
-     * so the caller can both stamp the new invoice and close out the sources afterward.
+     * Sum of this customer's still-outstanding invoices (unpaid/overdue/partial), excluding the
+     * carry-over target itself, to fold in as a carry-over. Returns [amount, note, invoices] so
+     * the caller can both stamp the target invoice and close out the sources afterward.
      */
-    private function pendingBalanceFor(Customer $customer): array
+    private function pendingBalanceFor(Customer $customer, int $excludeInvoiceId): array
     {
         $outstanding = Invoice::where('customer_id', $customer->id)
             ->whereIn('status', ['unpaid', 'overdue', 'partial'])
+            ->where('id', '!=', $excludeInvoiceId)
             ->get();
 
         $carryOver = 0.0;

@@ -53,8 +53,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::middleware('permission:invoices')->group(function () {
         Route::get('/invoices/bulk-create', [InvoiceController::class, 'bulkCreate'])->name('invoices.bulk-create');
         Route::post('/invoices/bulk-create', [InvoiceController::class, 'bulkStore'])->name('invoices.bulk-store');
-        Route::get('/invoices/import-outstanding-template', [InvoiceController::class, 'importOutstandingTemplate'])->name('invoices.import-outstanding-template');
-        Route::post('/invoices/import-outstanding', [InvoiceController::class, 'importOutstanding'])->name('invoices.import-outstanding');
+        Route::get('/invoices/outstanding-balance', [InvoiceController::class, 'outstandingBalance'])->name('invoices.outstanding-balance');
+        Route::post('/invoices/outstanding-balance', [InvoiceController::class, 'outstandingBalanceStore'])->name('invoices.outstanding-balance.store');
         Route::resource('invoices', InvoiceController::class);
         Route::get('/invoices/{invoice}/print', [InvoiceController::class, 'print'])->name('invoices.print');
         Route::get('/invoices/{invoice}/pay', [InvoiceController::class, 'pay'])->name('invoices.pay');

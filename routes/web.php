@@ -45,6 +45,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/customers/export', [CustomerController::class, 'export'])->name('customers.export');
         Route::get('/customers/import-template', [CustomerController::class, 'importTemplate'])->name('customers.import-template');
         Route::post('/customers/import', [CustomerController::class, 'import'])->name('customers.import');
+        Route::get('/customers/discounts', [CustomerController::class, 'discounts'])->name('customers.discounts');
+        Route::post('/customers/discounts', [CustomerController::class, 'discountsStore'])->name('customers.discounts.store');
         Route::resource('customers', CustomerController::class);
         Route::post('/customers/{customer}/isolate', [CustomerController::class, 'isolate'])->name('customers.isolate');
         Route::post('/customers/{customer}/restore', [CustomerController::class, 'restore'])->name('customers.restore');

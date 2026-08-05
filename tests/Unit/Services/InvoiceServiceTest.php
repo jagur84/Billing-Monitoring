@@ -48,6 +48,22 @@ class InvoiceServiceTest extends TestCase
         $this->assertSame(10, $invoice->due_date->day);
     }
 
+    public function test_it_applies_the_customers_recurring_discount_percent(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 200000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-D1', 'name' => 'Discounted Customer', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active', 'discount_percent' => 10, 'discount_note' => 'Diskon karyawan',
+        ]);
+
+        $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
+
+        $this->assertSame(20000.0, (float) $invoice->discount_amount);
+        $this->assertSame(180000.0, (float) $invoice->total_amount);
+    }
+
     public function test_it_does_not_duplicate_an_invoice_for_the_same_period(): void
     {
         $package = Package::create([

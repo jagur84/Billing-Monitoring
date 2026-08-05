@@ -6,6 +6,9 @@
                     <x-secondary-button type="button">Export Excel</x-secondary-button>
                 </a>
                 <x-secondary-button type="button" x-data="" x-on:click="$dispatch('open-modal', 'import-customers')">Import Excel</x-secondary-button>
+                <a href="{{ route('customers.discounts') }}">
+                    <x-secondary-button type="button">Diskon Pelanggan</x-secondary-button>
+                </a>
                 <a href="{{ route('customers.create') }}">
                     <x-primary-button>+ Pelanggan Baru</x-primary-button>
                 </a>

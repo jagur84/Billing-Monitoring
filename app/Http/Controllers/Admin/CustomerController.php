@@ -97,6 +97,51 @@ class CustomerController extends Controller
         return view('admin.customers.create', compact('packages', 'routers'));
     }
 
+    /**
+     * "Diskon Pelanggan" screen: set each customer's recurring discount percentage + note in
+     * one grid. Applied automatically every time that customer's next invoice is generated
+     * (see InvoiceService::generateForCustomer()) — not a one-off, per-invoice adjustment.
+     */
+    public function discounts()
+    {
+        $customers = Customer::where('status', '!=', 'inactive')
+            ->whereNotNull('package_id')
+            ->with('package')
+            ->orderBy('name')
+            ->get();
+
+        return view('admin.customers.discounts', compact('customers'));
+    }
+
+    public function discountsStore(Request $request)
+    {
+        $data = $request->validate([
+            'discount_percent' => ['nullable', 'array'],
+            'discount_percent.*' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'discount_note' => ['nullable', 'array'],
+            'discount_note.*' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $updated = 0;
+
+        foreach ($data['discount_percent'] ?? [] as $customerId => $percent) {
+            $customer = Customer::find($customerId);
+
+            if (! $customer) {
+                continue;
+            }
+
+            $customer->update([
+                'discount_percent' => $percent !== null && $percent !== '' ? (float) $percent : 0,
+                'discount_note' => $data['discount_note'][$customerId] ?? null,
+            ]);
+
+            $updated++;
+        }
+
+        return redirect()->route('customers.discounts')->with('status', "Diskon {$updated} pelanggan berhasil disimpan.");
+    }
+
     public function store(Request $request)
     {
         $data = $this->validated($request);

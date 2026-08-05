@@ -26,6 +26,8 @@ class Customer extends Model
         'ip_address',
         'installation_date',
         'billing_due_day',
+        'discount_percent',
+        'discount_note',
         'status',
         'notes',
     ];
@@ -38,6 +40,7 @@ class Customer extends Model
     {
         return [
             'installation_date' => 'date',
+            'discount_percent' => 'decimal:2',
         ];
     }
 

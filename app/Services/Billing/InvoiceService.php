@@ -37,6 +37,7 @@ class InvoiceService
         $package = $customer->package;
         $amount = (float) $package->price;
         $tax = round($amount * ((float) $package->tax_percent / 100), 2);
+        $discount = round($amount * ((float) $customer->discount_percent / 100), 2);
         $dueDay = min($customer->billing_due_day, Carbon::create($year, $month, 1)->daysInMonth);
 
         $invoice = Invoice::create([
@@ -48,9 +49,9 @@ class InvoiceService
             'period_year' => $year,
             'amount' => $amount,
             'tax_amount' => $tax,
-            'discount_amount' => 0,
+            'discount_amount' => $discount,
             'carry_over_amount' => 0,
-            'total_amount' => $amount + $tax,
+            'total_amount' => $amount + $tax - $discount,
             'due_date' => Carbon::create($year, $month, $dueDay),
             'status' => 'unpaid',
         ]);

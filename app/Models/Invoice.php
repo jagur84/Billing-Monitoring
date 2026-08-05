@@ -21,6 +21,8 @@ class Invoice extends Model
         'amount',
         'tax_amount',
         'discount_amount',
+        'carry_over_amount',
+        'carry_over_note',
         'total_amount',
         'due_date',
         'status',
@@ -36,6 +38,7 @@ class Invoice extends Model
             'amount' => 'decimal:2',
             'tax_amount' => 'decimal:2',
             'discount_amount' => 'decimal:2',
+            'carry_over_amount' => 'decimal:2',
             'total_amount' => 'decimal:2',
         ];
     }

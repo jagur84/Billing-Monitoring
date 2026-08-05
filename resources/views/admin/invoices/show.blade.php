@@ -53,6 +53,12 @@
                     <div class="flex justify-between"><span class="text-gray-500">Biaya Langganan</span><span>Rp {{ number_format($invoice->amount, 0, ',', '.') }}</span></div>
                     <div class="flex justify-between"><span class="text-gray-500">Pajak</span><span>Rp {{ number_format($invoice->tax_amount, 0, ',', '.') }}</span></div>
                     <div class="flex justify-between"><span class="text-gray-500">Diskon</span><span>- Rp {{ number_format($invoice->discount_amount, 0, ',', '.') }}</span></div>
+                    @if ($invoice->carry_over_amount > 0)
+                        <div class="flex justify-between">
+                            <span class="text-gray-500" title="{{ $invoice->carry_over_note }}">Sisa Tagihan Sebelumnya</span>
+                            <span>Rp {{ number_format($invoice->carry_over_amount, 0, ',', '.') }}</span>
+                        </div>
+                    @endif
                     <div class="flex justify-between border-t border-gray-100 pt-2 text-base font-semibold text-gray-900"><span>Total</span><span>Rp {{ number_format($invoice->total_amount, 0, ',', '.') }}</span></div>
                     @if ($totalPaid > 0 && $invoice->status !== 'paid')
                         <div class="flex justify-between text-emerald-600"><span>Sudah Dibayar</span><span>Rp {{ number_format($totalPaid, 0, ',', '.') }}</span></div>

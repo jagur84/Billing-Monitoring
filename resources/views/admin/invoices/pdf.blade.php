@@ -87,6 +87,12 @@
                     <td>Diskon</td>
                     <td class="text-right">- Rp {{ number_format($invoice->discount_amount, 0, ',', '.') }}</td>
                 </tr>
+                @if ($invoice->carry_over_amount > 0)
+                    <tr>
+                        <td>Sisa Tagihan Sebelumnya</td>
+                        <td class="text-right">Rp {{ number_format($invoice->carry_over_amount, 0, ',', '.') }}</td>
+                    </tr>
+                @endif
                 <tr class="total-row">
                     <td>Total Tagihan</td>
                     <td class="text-right">Rp {{ number_format($invoice->total_amount, 0, ',', '.') }}</td>

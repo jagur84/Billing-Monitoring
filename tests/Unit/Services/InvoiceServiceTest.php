@@ -67,6 +67,49 @@ class InvoiceServiceTest extends TestCase
         $this->assertSame(1, Invoice::count());
     }
 
+    public function test_generating_next_invoice_carries_over_previous_unpaid_balance(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 150000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-00010', 'name' => 'Test Customer 10', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $service = app(InvoiceService::class);
+
+        $julyInvoice = $service->generateForCustomer($customer, 7, 2026);
+        $service->recordManualPayment($julyInvoice, 120000, null); // pays 120k of 150k, leaves 30k
+
+        $augustInvoice = $service->generateForCustomer($customer, 8, 2026);
+
+        $this->assertSame(30000.0, (float) $augustInvoice->carry_over_amount);
+        $this->assertNotNull($augustInvoice->carry_over_note);
+        $this->assertSame(180000.0, (float) $augustInvoice->total_amount); // 150k + 30k carried over
+
+        $julyInvoice->refresh();
+        $this->assertSame('paid', $julyInvoice->status);
+        $this->assertSame(1, $julyInvoice->payments()->where('gateway', 'carry_over')->count());
+    }
+
+    public function test_carry_over_is_zero_when_no_previous_balance_exists(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 150000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-00011', 'name' => 'Test Customer 11', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
+
+        $this->assertSame(0.0, (float) $invoice->carry_over_amount);
+        $this->assertNull($invoice->carry_over_note);
+        $this->assertSame(150000.0, (float) $invoice->total_amount);
+    }
+
     public function test_manual_payment_marks_invoice_paid(): void
     {
         $package = Package::create([

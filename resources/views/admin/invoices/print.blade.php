@@ -91,6 +91,12 @@
                         <td class="py-2 text-gray-600">Diskon</td>
                         <td class="py-2 text-right text-gray-600">- Rp {{ number_format($invoice->discount_amount, 0, ',', '.') }}</td>
                     </tr>
+                    @if ($invoice->carry_over_amount > 0)
+                        <tr>
+                            <td class="py-2 text-gray-600" title="{{ $invoice->carry_over_note }}">Sisa Tagihan Sebelumnya</td>
+                            <td class="py-2 text-right text-gray-600">Rp {{ number_format($invoice->carry_over_amount, 0, ',', '.') }}</td>
+                        </tr>
+                    @endif
                 </tbody>
                 <tfoot>
                     <tr class="border-t-2 border-gray-300">

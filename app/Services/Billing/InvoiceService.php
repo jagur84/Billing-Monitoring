@@ -3,14 +3,17 @@
 namespace App\Services\Billing;
 
 use App\Events\InvoicePaid;
+use App\Mail\InvoiceCreatedMail;
 use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\Invoice;
+use App\Models\NotificationLog;
 use App\Models\Payment;
 use App\Models\Setting;
 use App\Services\Payment\TripayService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 
@@ -34,11 +37,14 @@ class InvoiceService
         $package = $customer->package;
         $amount = (float) $package->price;
         $tax = round($amount * ((float) $package->tax_percent / 100), 2);
-        $total = $amount + $tax;
+
+        [$carryOver, $carryOverNote, $sourceInvoices] = $this->pendingBalanceFor($customer);
+
+        $total = $amount + $tax + $carryOver;
 
         $dueDay = min($customer->billing_due_day, Carbon::create($year, $month, 1)->daysInMonth);
 
-        return Invoice::create([
+        $invoice = Invoice::create([
             'invoice_number' => $this->generateInvoiceNumber($month, $year),
             'customer_id' => $customer->id,
             'package_id' => $package->id,
@@ -48,10 +54,91 @@ class InvoiceService
             'amount' => $amount,
             'tax_amount' => $tax,
             'discount_amount' => 0,
+            'carry_over_amount' => $carryOver,
+            'carry_over_note' => $carryOverNote,
             'total_amount' => $total,
             'due_date' => Carbon::create($year, $month, $dueDay),
             'status' => 'unpaid',
         ]);
+
+        if ($carryOver > 0) {
+            $this->closeCarriedOverInvoices($sourceInvoices, $invoice);
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Generate the next invoice for a customer and, if one was created, queue the
+     * "invoice created" email — shared by the daily scheduler and the manual bulk-generate
+     * action so both send exactly one notification per invoice via NotificationLog.
+     */
+    public function generateAndNotify(Customer $customer, int $month, int $year): ?Invoice
+    {
+        $invoice = $this->generateForCustomer($customer, $month, $year);
+
+        if ($invoice && $customer->email && NotificationLog::record($invoice, 'email', 'invoice_created')) {
+            Mail::to($customer->email)->queue(new InvoiceCreatedMail($invoice));
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Sum of this customer's still-outstanding older invoices (unpaid/overdue/partial),
+     * to fold into a newly generated invoice as a carry-over. Returns [amount, note, invoices]
+     * so the caller can both stamp the new invoice and close out the sources afterward.
+     */
+    private function pendingBalanceFor(Customer $customer): array
+    {
+        $outstanding = Invoice::where('customer_id', $customer->id)
+            ->whereIn('status', ['unpaid', 'overdue', 'partial'])
+            ->get();
+
+        $carryOver = 0.0;
+        $noteLines = [];
+
+        foreach ($outstanding as $old) {
+            $remaining = round((float) $old->total_amount - $this->totalPaid($old), 2);
+
+            if ($remaining <= 0) {
+                continue;
+            }
+
+            $carryOver += $remaining;
+            $noteLines[] = sprintf('Sisa dari %s (Rp%s)', $old->invoice_number, number_format($remaining, 0, ',', '.'));
+        }
+
+        $carryOver = round($carryOver, 2);
+
+        return [$carryOver, $noteLines ? implode('; ', $noteLines) : null, $outstanding];
+    }
+
+    /**
+     * Close out the older invoices absorbed into a new invoice's carry-over amount by
+     * recording a synthetic "carry_over" payment for each one's remaining balance — this
+     * reuses refreshPaymentStatus() to flip them to paid so they stop double-counting as
+     * outstanding arrears, while keeping an audit trail of where the balance moved to.
+     */
+    private function closeCarriedOverInvoices(iterable $sourceInvoices, Invoice $newInvoice): void
+    {
+        foreach ($sourceInvoices as $old) {
+            $remaining = round((float) $old->total_amount - $this->totalPaid($old), 2);
+
+            if ($remaining <= 0) {
+                continue;
+            }
+
+            $old->payments()->create([
+                'gateway' => 'carry_over',
+                'amount' => $remaining,
+                'status' => 'paid',
+                'paid_at' => now(),
+                'raw_response' => ['note' => "Digabung ke {$newInvoice->invoice_number}"],
+            ]);
+
+            $this->refreshPaymentStatus($old);
+        }
     }
 
     /**

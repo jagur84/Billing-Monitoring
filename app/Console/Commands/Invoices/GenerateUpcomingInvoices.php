@@ -2,12 +2,9 @@
 
 namespace App\Console\Commands\Invoices;
 
-use App\Mail\InvoiceCreatedMail;
 use App\Models\Customer;
-use App\Models\NotificationLog;
 use App\Services\Billing\InvoiceService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Mail;
 
 class GenerateUpcomingInvoices extends Command
 {
@@ -31,16 +28,8 @@ class GenerateUpcomingInvoices extends Command
                         continue;
                     }
 
-                    $invoice = $invoiceService->generateForCustomer($customer, $nextDue->month, $nextDue->year);
-
-                    if (! $invoice) {
-                        continue;
-                    }
-
-                    $created++;
-
-                    if ($customer->email && NotificationLog::record($invoice, 'email', 'invoice_created')) {
-                        Mail::to($customer->email)->queue(new InvoiceCreatedMail($invoice));
+                    if ($invoiceService->generateAndNotify($customer, $nextDue->month, $nextDue->year)) {
+                        $created++;
                     }
                 }
             });

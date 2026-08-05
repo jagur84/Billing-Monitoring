@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Exports\OutstandingBalanceImportTemplateExport;
 use App\Http\Controllers\Controller;
+use App\Imports\OutstandingBalanceImport;
 use App\Jobs\SendWhatsAppMessage;
 use App\Mail\InvoiceReminderMail;
 use App\Models\BankAccount;
@@ -15,6 +17,7 @@ use App\Services\Notifications\TemplateRenderer;
 use App\Services\Payment\TripayService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Maatwebsite\Excel\Facades\Excel;
 
 class InvoiceController extends Controller
 {
@@ -86,6 +89,92 @@ class InvoiceController extends Controller
         }
 
         return redirect()->route('invoices.show', $invoice)->with('status', 'Tagihan berhasil dibuat.');
+    }
+
+    public function bulkCreate()
+    {
+        $month = now()->month;
+        $year = now()->year;
+
+        $customers = Customer::where('status', '!=', 'inactive')
+            ->whereNotNull('package_id')
+            ->orderBy('name')
+            ->get();
+
+        $alreadyInvoiced = Invoice::where('period_month', $month)
+            ->where('period_year', $year)
+            ->whereIn('customer_id', $customers->pluck('id'))
+            ->pluck('customer_id')
+            ->all();
+
+        return view('admin.invoices.bulk-create', compact('customers', 'alreadyInvoiced', 'month', 'year'));
+    }
+
+    public function bulkStore(Request $request)
+    {
+        $data = $request->validate([
+            'select_all' => ['nullable', 'boolean'],
+            'customer_ids' => ['required_without:select_all', 'array'],
+            'customer_ids.*' => ['integer', 'exists:customers,id'],
+        ]);
+
+        $month = now()->month;
+        $year = now()->year;
+
+        $query = Customer::where('status', '!=', 'inactive')->whereNotNull('package_id');
+
+        if (! $request->boolean('select_all')) {
+            $query->whereIn('id', $data['customer_ids'] ?? []);
+        }
+
+        $created = 0;
+        $skipped = 0;
+
+        foreach ($query->get() as $customer) {
+            if ($this->invoiceService->generateAndNotify($customer, $month, $year)) {
+                $created++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        return redirect()->route('invoices.index')->with(
+            'status',
+            "{$created} tagihan berhasil dibuat. {$skipped} pelanggan dilewati (sudah ada tagihan bulan ini atau belum punya paket)."
+        );
+    }
+
+    public function importOutstandingTemplate()
+    {
+        return Excel::download(new OutstandingBalanceImportTemplateExport, 'contoh-format-import-saldo-sisa.xlsx');
+    }
+
+    public function importOutstanding(Request $request)
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+        ]);
+
+        $import = new OutstandingBalanceImport($this->invoiceService);
+        Excel::import($import, $request->file('file'));
+
+        $failures = $import->failures();
+
+        if ($failures->isEmpty()) {
+            return back()->with('status', "Berhasil mengimpor {$import->imported} saldo sisa.");
+        }
+
+        $errors = $failures->map(function ($failure) {
+            $row = $failure->row();
+            $messages = implode(', ', $failure->errors());
+
+            return "Baris {$row}: {$messages}";
+        })->implode(' | ');
+
+        return back()->with(
+            'status',
+            "Berhasil mengimpor {$import->imported} saldo sisa. ".$failures->count().' baris dilewati karena tidak valid.'
+        )->with('import_errors', $errors);
     }
 
     public function show(Invoice $invoice)

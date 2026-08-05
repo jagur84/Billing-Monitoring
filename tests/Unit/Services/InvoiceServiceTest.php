@@ -64,6 +64,38 @@ class InvoiceServiceTest extends TestCase
         $this->assertSame(180000.0, (float) $invoice->total_amount);
     }
 
+    public function test_it_applies_a_fixed_nominal_discount(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 200000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-D6', 'name' => 'Nominal Discount Customer', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active', 'discount_type' => 'nominal', 'discount_nominal' => 35000,
+        ]);
+
+        $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
+
+        $this->assertSame(35000.0, (float) $invoice->discount_amount);
+        $this->assertSame(165000.0, (float) $invoice->total_amount);
+    }
+
+    public function test_a_nominal_discount_larger_than_the_invoice_is_capped_at_zero_total(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 100000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-D7', 'name' => 'Overshot Discount Customer', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active', 'discount_type' => 'nominal', 'discount_nominal' => 999999,
+        ]);
+
+        $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
+
+        $this->assertSame(100000.0, (float) $invoice->discount_amount);
+        $this->assertSame(0.0, (float) $invoice->total_amount);
+    }
+
     public function test_it_does_not_duplicate_an_invoice_for_the_same_period(): void
     {
         $package = Package::create([

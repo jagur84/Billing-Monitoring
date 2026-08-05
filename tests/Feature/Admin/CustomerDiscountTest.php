@@ -38,18 +38,46 @@ class CustomerDiscountTest extends TestCase
         ]);
 
         $response = $this->post(route('customers.discounts.store'), [
+            'discount_type' => [$customer->id => 'percent'],
             'discount_percent' => [$customer->id => '15'],
             'discount_note' => [$customer->id => 'Diskon pelanggan lama'],
         ]);
 
         $response->assertRedirect(route('customers.discounts'));
         $customer->refresh();
+        $this->assertSame('percent', $customer->discount_type);
         $this->assertSame(15.0, (float) $customer->discount_percent);
         $this->assertSame('Diskon pelanggan lama', $customer->discount_note);
 
         $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
         $this->assertSame(30000.0, (float) $invoice->discount_amount);
         $this->assertSame(170000.0, (float) $invoice->total_amount);
+    }
+
+    public function test_nominal_discount_type_deducts_a_fixed_rupiah_amount(): void
+    {
+        $this->actingAsSuperAdmin();
+
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 200000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-D5', 'name' => 'Customer D5', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active',
+        ]);
+
+        $this->post(route('customers.discounts.store'), [
+            'discount_type' => [$customer->id => 'nominal'],
+            'discount_nominal' => [$customer->id => '25000'],
+        ]);
+
+        $customer->refresh();
+        $this->assertSame('nominal', $customer->discount_type);
+        $this->assertSame(25000.0, (float) $customer->discount_nominal);
+
+        $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
+        $this->assertSame(25000.0, (float) $invoice->discount_amount);
+        $this->assertSame(175000.0, (float) $invoice->total_amount);
     }
 
     public function test_blank_percent_resets_discount_to_zero(): void
@@ -65,6 +93,7 @@ class CustomerDiscountTest extends TestCase
         ]);
 
         $this->post(route('customers.discounts.store'), [
+            'discount_type' => [$customer->id => 'percent'],
             'discount_percent' => [$customer->id => ''],
         ]);
 

@@ -13,8 +13,9 @@
                 @csrf
 
                 <p class="mb-4 text-sm text-gray-500">
-                    Diskon dalam persen (%) dari biaya paket, dihitung otomatis setiap kali tagihan pelanggan tersebut dibuat
-                    (otomatis harian, manual, maupun massal). Isi 0 atau kosongkan untuk pelanggan tanpa diskon.
+                    Pilih tipe diskon per pelanggan: <strong>Persen</strong> (dari biaya paket) atau <strong>Nominal</strong> (potongan Rp tetap).
+                    Dihitung otomatis setiap kali tagihan pelanggan tersebut dibuat (otomatis harian, manual, maupun massal).
+                    Isi 0 atau kosongkan untuk pelanggan tanpa diskon.
                     Perubahan di sini <strong>tidak</strong> mengubah tagihan yang sudah terbit — hanya berlaku untuk tagihan berikutnya.
                 </p>
 
@@ -29,19 +30,33 @@
                                 <th class="py-3 pr-4">Kode</th>
                                 <th class="py-3 pr-4">Nama</th>
                                 <th class="py-3 pr-4">Paket</th>
-                                <th class="py-3 pr-4 w-32">Diskon (%)</th>
-                                <th class="py-3 pr-4 w-64">Keterangan Diskon</th>
+                                <th class="py-3 pr-4 w-32">Tipe</th>
+                                <th class="py-3 pr-4 w-40">Nilai Diskon</th>
+                                <th class="py-3 pr-4 w-56">Keterangan Diskon</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             @forelse ($customers as $customer)
-                                <tr x-data="{ q: @js(strtolower($customer->name.' '.$customer->customer_code)) }" x-show="q.includes(search.toLowerCase())">
+                                <tr x-data="{ q: @js(strtolower($customer->name.' '.$customer->customer_code)), type: @js($customer->discount_type ?? 'percent') }"
+                                    x-show="q.includes(search.toLowerCase())">
                                     <td class="py-2 pr-4 font-mono text-xs text-gray-500">{{ $customer->customer_code }}</td>
                                     <td class="py-2 pr-4 text-gray-900">{{ $customer->name }}</td>
                                     <td class="py-2 pr-4 text-gray-600">{{ $customer->package?->name ?? '-' }}</td>
                                     <td class="py-2 pr-4">
-                                        <x-text-input type="number" step="0.01" min="0" max="100" name="discount_percent[{{ $customer->id }}]"
-                                            class="block w-full" value="{{ (float) $customer->discount_percent ?: '' }}" placeholder="0" />
+                                        <x-select-input name="discount_type[{{ $customer->id }}]" class="block w-full" x-model="type">
+                                            <option value="percent">Persen</option>
+                                            <option value="nominal">Nominal</option>
+                                        </x-select-input>
+                                    </td>
+                                    <td class="py-2 pr-4">
+                                        <div x-show="type === 'percent'">
+                                            <x-text-input type="number" step="0.01" min="0" max="100" name="discount_percent[{{ $customer->id }}]"
+                                                class="block w-full" value="{{ (float) $customer->discount_percent ?: '' }}" placeholder="0 %" />
+                                        </div>
+                                        <div x-show="type === 'nominal'" x-cloak>
+                                            <x-text-input type="number" step="0.01" min="0" name="discount_nominal[{{ $customer->id }}]"
+                                                class="block w-full" value="{{ (float) $customer->discount_nominal ?: '' }}" placeholder="0" />
+                                        </div>
                                     </td>
                                     <td class="py-2 pr-4">
                                         <x-text-input type="text" name="discount_note[{{ $customer->id }}]" maxlength="255"
@@ -49,7 +64,7 @@
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="5" class="py-6 text-center text-gray-500">Tidak ada pelanggan aktif dengan paket.</td></tr>
+                                <tr><td colspan="6" class="py-6 text-center text-gray-500">Tidak ada pelanggan aktif dengan paket.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

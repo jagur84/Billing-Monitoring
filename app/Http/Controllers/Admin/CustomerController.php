@@ -116,23 +116,32 @@ class CustomerController extends Controller
     public function discountsStore(Request $request)
     {
         $data = $request->validate([
+            'discount_type' => ['nullable', 'array'],
+            'discount_type.*' => ['nullable', 'in:percent,nominal'],
             'discount_percent' => ['nullable', 'array'],
             'discount_percent.*' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'discount_nominal' => ['nullable', 'array'],
+            'discount_nominal.*' => ['nullable', 'numeric', 'min:0'],
             'discount_note' => ['nullable', 'array'],
             'discount_note.*' => ['nullable', 'string', 'max:255'],
         ]);
 
         $updated = 0;
 
-        foreach ($data['discount_percent'] ?? [] as $customerId => $percent) {
+        foreach ($data['discount_type'] ?? [] as $customerId => $type) {
             $customer = Customer::find($customerId);
 
             if (! $customer) {
                 continue;
             }
 
+            $percent = $data['discount_percent'][$customerId] ?? null;
+            $nominal = $data['discount_nominal'][$customerId] ?? null;
+
             $customer->update([
+                'discount_type' => $type ?: 'percent',
                 'discount_percent' => $percent !== null && $percent !== '' ? (float) $percent : 0,
+                'discount_nominal' => $nominal !== null && $nominal !== '' ? (float) $nominal : 0,
                 'discount_note' => $data['discount_note'][$customerId] ?? null,
             ]);
 

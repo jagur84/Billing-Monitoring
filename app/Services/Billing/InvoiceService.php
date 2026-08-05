@@ -37,7 +37,7 @@ class InvoiceService
         $package = $customer->package;
         $amount = (float) $package->price;
         $tax = round($amount * ((float) $package->tax_percent / 100), 2);
-        $discount = round($amount * ((float) $customer->discount_percent / 100), 2);
+        $discount = min($this->discountFor($customer, $amount), $amount + $tax);
         $dueDay = min($customer->billing_due_day, Carbon::create($year, $month, 1)->daysInMonth);
 
         $invoice = Invoice::create([
@@ -59,6 +59,20 @@ class InvoiceService
         $this->applyOutstandingCarryOver($customer);
 
         return $invoice->fresh();
+    }
+
+    /**
+     * The customer's recurring discount against a package amount — either a flat percentage
+     * of it, or a fixed rupiah amount — per their configured discount_type. Not capped to the
+     * invoice total here; the caller clamps it so a large nominal discount can't push total
+     * below zero.
+     */
+    private function discountFor(Customer $customer, float $amount): float
+    {
+        return round(match ($customer->discount_type) {
+            'nominal' => (float) $customer->discount_nominal,
+            default => $amount * ((float) $customer->discount_percent / 100),
+        }, 2);
     }
 
     /**

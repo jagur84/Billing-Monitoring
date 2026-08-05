@@ -31,6 +31,7 @@ class InvoiceController extends Controller
 
         $invoices = Invoice::with('customer')
             ->withSum(['payments as paid_amount' => $paidSum], 'amount')
+            ->withCount('payments')
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('search'), function ($q) use ($request) {
                 $search = $request->string('search');
@@ -264,14 +265,14 @@ class InvoiceController extends Controller
 
     public function edit(Invoice $invoice)
     {
-        abort_if($invoice->status === 'paid', 403, 'Tagihan yang sudah dibayar tidak bisa diubah.');
+        abort_if(in_array($invoice->status, ['paid', 'cancelled'], true), 403, 'Tagihan yang sudah selesai tidak bisa diubah.');
 
         return view('admin.invoices.edit', compact('invoice'));
     }
 
     public function update(Request $request, Invoice $invoice)
     {
-        abort_if($invoice->status === 'paid', 403, 'Tagihan yang sudah dibayar tidak bisa diubah.');
+        abort_if(in_array($invoice->status, ['paid', 'cancelled'], true), 403, 'Tagihan yang sudah selesai tidak bisa diubah.');
 
         $data = $request->validate([
             'amount' => ['required', 'numeric', 'min:0'],
@@ -281,7 +282,9 @@ class InvoiceController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
-        $data['total_amount'] = $data['amount'] + $data['tax_amount'] - $data['discount_amount'];
+        // Preserve any carry-over already folded into this invoice — the edit form only
+        // covers the package/tax/discount side, not the carried-over balance.
+        $data['total_amount'] = $data['amount'] + $data['tax_amount'] - $data['discount_amount'] + (float) $invoice->carry_over_amount;
 
         $invoice->update($data);
 
@@ -290,7 +293,7 @@ class InvoiceController extends Controller
 
     public function destroy(Invoice $invoice)
     {
-        abort_if($invoice->status === 'paid', 403, 'Tagihan yang sudah dibayar tidak bisa dihapus.');
+        abort_if($invoice->payments()->exists(), 403, 'Tagihan yang sudah punya pembayaran tidak bisa dihapus.');
 
         $invoice->delete();
 

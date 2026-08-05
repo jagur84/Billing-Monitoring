@@ -36,6 +36,14 @@
                 </div>
             </div>
 
+            @if ($invoice->carry_over_amount > 0)
+                <p class="text-sm text-gray-500" title="{{ $invoice->carry_over_note }}">
+                    Tagihan ini juga membawa sisa tagihan sebelumnya sebesar
+                    <span class="font-medium text-gray-900">Rp {{ number_format($invoice->carry_over_amount, 0, ',', '.') }}</span>
+                    — nilai ini otomatis tetap ditambahkan ke total dan tidak diubah lewat form ini.
+                </p>
+            @endif
+
             <div class="flex justify-end gap-3">
                 <a href="{{ route('invoices.show', $invoice) }}"><x-secondary-button type="button">Batal</x-secondary-button></a>
                 <x-primary-button>Simpan Perubahan</x-primary-button>

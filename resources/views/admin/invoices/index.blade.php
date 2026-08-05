@@ -48,6 +48,7 @@
                             <th class="py-3 pr-4">Sisa Pembayaran</th>
                             <th class="py-3 pr-4">Jatuh Tempo</th>
                             <th class="py-3 pr-4">Status</th>
+                            <th class="py-3 pr-4 text-right">Aksi</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
@@ -80,9 +81,21 @@
                                         {{ match($invoice->status) { 'unpaid' => 'Belum Bayar', 'paid' => 'Lunas', 'partial' => 'Cicilan', 'overdue' => 'Jatuh Tempo', default => 'Dibatalkan' } }}
                                     </x-badge>
                                 </td>
+                                <td class="py-3 pr-4 text-right whitespace-nowrap">
+                                    @if (in_array($invoice->status, ['unpaid', 'overdue', 'partial']))
+                                        <a href="{{ route('invoices.edit', $invoice) }}" class="text-indigo-600 hover:text-indigo-800">Ubah</a>
+                                    @endif
+                                    @if ($invoice->payments_count === 0)
+                                        <form action="{{ route('invoices.destroy', $invoice) }}" method="POST" class="inline" onsubmit="return confirm('Hapus tagihan ini? Tindakan ini tidak bisa dibatalkan.');">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="ml-3 text-rose-600 hover:text-rose-800">Hapus</button>
+                                        </form>
+                                    @endif
+                                </td>
                             </tr>
                         @empty
-                            <tr><td colspan="9" class="py-6 text-center text-gray-500">Belum ada tagihan.</td></tr>
+                            <tr><td colspan="10" class="py-6 text-center text-gray-500">Belum ada tagihan.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

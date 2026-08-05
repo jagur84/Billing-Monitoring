@@ -19,8 +19,15 @@
                         <x-secondary-button type="submit" :disabled="! $invoice->customer->phone">Kirim WhatsApp Reminder</x-secondary-button>
                     </form>
                 @endif
-                @if ($invoice->status === 'unpaid')
+                @if (in_array($invoice->status, ['unpaid', 'overdue', 'partial']))
                     <a href="{{ route('invoices.edit', $invoice) }}"><x-secondary-button type="button">Ubah</x-secondary-button></a>
+                @endif
+                @if ($invoice->payments->isEmpty())
+                    <form action="{{ route('invoices.destroy', $invoice) }}" method="POST" onsubmit="return confirm('Hapus tagihan ini? Tindakan ini tidak bisa dibatalkan.');">
+                        @csrf
+                        @method('DELETE')
+                        <x-danger-button type="submit">Hapus</x-danger-button>
+                    </form>
                 @endif
             </x-slot>
         </x-page-header>

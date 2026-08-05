@@ -25,6 +25,29 @@ class CustomerDiscountTest extends TestCase
         return $user;
     }
 
+    public function test_an_inactive_customer_submitted_outside_the_grid_is_not_updated(): void
+    {
+        $this->actingAsSuperAdmin();
+
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 200000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-D9', 'name' => 'Inactive Customer', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'inactive',
+        ]);
+
+        // Simulates a tampered submission targeting a customer id the grid never rendered
+        // (the grid only lists status != inactive) rather than a real UI interaction.
+        $this->post(route('customers.discounts.store'), [
+            'discount_type' => [$customer->id => 'percent'],
+            'discount_percent' => [$customer->id => '50'],
+        ]);
+
+        $customer->refresh();
+        $this->assertSame(0.0, (float) $customer->discount_percent);
+    }
+
     public function test_saving_a_discount_updates_the_customer_and_applies_to_the_next_invoice(): void
     {
         $this->actingAsSuperAdmin();

@@ -13,6 +13,8 @@ use App\Models\Setting;
 use App\Services\Payment\TripayService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
@@ -41,25 +43,38 @@ class InvoiceService
         $dueDate = Carbon::create($year, $month, $dueDay);
         $discount = min($this->discountFor($customer, $amount, $dueDate), $amount + $tax);
 
-        $invoice = Invoice::create([
-            'invoice_number' => $this->generateInvoiceNumber($month, $year),
-            'customer_id' => $customer->id,
-            'package_id' => $package->id,
-            'package_name_snapshot' => $package->name,
-            'period_month' => $month,
-            'period_year' => $year,
-            'amount' => $amount,
-            'tax_amount' => $tax,
-            'discount_amount' => $discount,
-            'carry_over_amount' => 0,
-            'total_amount' => $amount + $tax - $discount,
-            'due_date' => $dueDate,
-            'status' => 'unpaid',
-        ]);
+        try {
+            return DB::transaction(function () use ($customer, $month, $year, $package, $amount, $tax, $discount, $dueDate) {
+                $invoice = Invoice::create([
+                    'invoice_number' => $this->generateInvoiceNumber($month, $year),
+                    'customer_id' => $customer->id,
+                    'package_id' => $package->id,
+                    'package_name_snapshot' => $package->name,
+                    'period_month' => $month,
+                    'period_year' => $year,
+                    'amount' => $amount,
+                    'tax_amount' => $tax,
+                    'discount_amount' => $discount,
+                    'carry_over_amount' => 0,
+                    'total_amount' => $amount + $tax - $discount,
+                    'due_date' => $dueDate,
+                    'status' => 'unpaid',
+                ]);
 
-        $this->applyOutstandingCarryOver($customer);
+                // Creating the invoice and folding in any outstanding carry-over must succeed
+                // or fail together — otherwise an interruption between the two steps could
+                // leave an older invoice's balance un-closed while it's already been added to
+                // this new invoice's total, and a later run would fold it in again (double-count).
+                $this->applyOutstandingCarryOver($customer);
 
-        return $invoice->fresh();
+                return $invoice->fresh();
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Another process (scheduler, manual create, bulk generate) won the race and
+            // already created this customer's invoice for this period between our exists()
+            // check above and this insert — treat it the same as "already exists".
+            return null;
+        }
     }
 
     /**
@@ -108,26 +123,32 @@ class InvoiceService
         $dueDay = min($customer->billing_due_day, Carbon::create($year, $month, 1)->daysInMonth);
         $amount = round($amount, 2);
 
-        $invoice = Invoice::create([
-            'invoice_number' => $this->generateInvoiceNumber($month, $year),
-            'customer_id' => $customer->id,
-            'package_id' => $customer->package_id,
-            'package_name_snapshot' => $customer->package?->name,
-            'period_month' => $month,
-            'period_year' => $year,
-            'amount' => $amount,
-            'tax_amount' => 0,
-            'discount_amount' => 0,
-            'carry_over_amount' => 0,
-            'total_amount' => $amount,
-            'due_date' => Carbon::create($year, $month, $dueDay),
-            'status' => 'unpaid',
-            'notes' => 'Migrasi saldo sisa dari sistem lama',
-        ]);
+        try {
+            return DB::transaction(function () use ($customer, $month, $year, $amount, $dueDay) {
+                $invoice = Invoice::create([
+                    'invoice_number' => $this->generateInvoiceNumber($month, $year),
+                    'customer_id' => $customer->id,
+                    'package_id' => $customer->package_id,
+                    'package_name_snapshot' => $customer->package?->name,
+                    'period_month' => $month,
+                    'period_year' => $year,
+                    'amount' => $amount,
+                    'tax_amount' => 0,
+                    'discount_amount' => 0,
+                    'carry_over_amount' => 0,
+                    'total_amount' => $amount,
+                    'due_date' => Carbon::create($year, $month, $dueDay),
+                    'status' => 'unpaid',
+                    'notes' => 'Migrasi saldo sisa dari sistem lama',
+                ]);
 
-        $this->applyOutstandingCarryOver($customer);
+                $this->applyOutstandingCarryOver($customer);
 
-        return $invoice->fresh();
+                return $invoice->fresh();
+            });
+        } catch (UniqueConstraintViolationException) {
+            return null;
+        }
     }
 
     /**

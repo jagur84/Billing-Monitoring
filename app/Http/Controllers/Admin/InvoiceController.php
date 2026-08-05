@@ -15,6 +15,7 @@ use App\Services\Notifications\TemplateRenderer;
 use App\Services\Payment\TripayService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class InvoiceController extends Controller
@@ -128,19 +129,30 @@ class InvoiceController extends Controller
 
         $created = 0;
         $skipped = 0;
+        $failed = 0;
 
         foreach ($query->get() as $customer) {
-            if ($this->invoiceService->generateAndNotify($customer, $month, $year)) {
-                $created++;
-            } else {
-                $skipped++;
+            try {
+                if ($this->invoiceService->generateAndNotify($customer, $month, $year)) {
+                    $created++;
+                } else {
+                    $skipped++;
+                }
+            } catch (\Throwable $e) {
+                // One customer's generation failing (e.g. a race with the daily scheduler,
+                // or an unexpected data issue) shouldn't abort the rest of the batch.
+                $failed++;
+                Log::error('Bulk invoice generation failed', ['customer_id' => $customer->id, 'error' => $e->getMessage()]);
             }
         }
 
-        return redirect()->route('invoices.index')->with(
-            'status',
-            "{$created} tagihan berhasil dibuat. {$skipped} pelanggan dilewati (sudah ada tagihan bulan ini atau belum punya paket)."
-        );
+        $message = "{$created} tagihan berhasil dibuat. {$skipped} pelanggan dilewati (sudah ada tagihan bulan ini atau belum punya paket).";
+
+        if ($failed > 0) {
+            $message .= " {$failed} gagal karena kesalahan sistem — lihat log.";
+        }
+
+        return redirect()->route('invoices.index')->with('status', $message);
     }
 
     /**
@@ -191,27 +203,40 @@ class InvoiceController extends Controller
 
         $saved = 0;
         $skipped = 0;
+        $failed = 0;
 
         foreach ($data['amounts'] ?? [] as $customerId => $amount) {
-            $customer = Customer::find($customerId);
+            // Scoped to the same customers the grid actually shows — see the equivalent
+            // guard in CustomerController::discountsStore().
+            $customer = Customer::where('status', '!=', 'inactive')->whereNotNull('package_id')->find($customerId);
 
             if (! $customer || (float) $amount <= 0) {
                 continue;
             }
 
-            $invoice = $this->invoiceService->recordOutstandingBalance($customer, (int) $data['month'], (int) $data['year'], (float) $amount);
+            try {
+                $invoice = $this->invoiceService->recordOutstandingBalance($customer, (int) $data['month'], (int) $data['year'], (float) $amount);
 
-            if ($invoice) {
-                $saved++;
-            } else {
-                $skipped++;
+                if ($invoice) {
+                    $saved++;
+                } else {
+                    $skipped++;
+                }
+            } catch (\Throwable $e) {
+                // One customer's entry failing (e.g. an unexpected DB error) shouldn't abort
+                // the whole grid submission — log it and keep saving the rest.
+                $failed++;
+                Log::error('Outstanding balance entry failed', ['customer_id' => $customer->id, 'error' => $e->getMessage()]);
             }
         }
 
-        return redirect()->route('invoices.outstanding-balance', ['period' => "{$data['month']}-{$data['year']}"])->with(
-            'status',
-            "{$saved} saldo sisa berhasil disimpan. {$skipped} dilewati (sudah ada tagihan untuk periode tersebut)."
-        );
+        $message = "{$saved} saldo sisa berhasil disimpan. {$skipped} dilewati (sudah ada tagihan untuk periode tersebut).";
+
+        if ($failed > 0) {
+            $message .= " {$failed} gagal disimpan karena kesalahan sistem — lihat log.";
+        }
+
+        return redirect()->route('invoices.outstanding-balance', ['period' => "{$data['month']}-{$data['year']}"])->with('status', $message);
     }
 
     /**

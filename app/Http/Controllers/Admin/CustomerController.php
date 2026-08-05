@@ -131,7 +131,10 @@ class CustomerController extends Controller
         $updated = 0;
 
         foreach ($data['discount_type'] ?? [] as $customerId => $type) {
-            $customer = Customer::find($customerId);
+            // Scoped to the same customers the grid actually shows — a submitted id outside
+            // that set (e.g. an inactive customer, or one tampered into the form) is skipped
+            // rather than silently updated.
+            $customer = Customer::where('status', '!=', 'inactive')->whereNotNull('package_id')->find($customerId);
 
             if (! $customer) {
                 continue;

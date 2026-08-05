@@ -47,18 +47,31 @@ class TemplateRenderer
     ];
 
     /**
+     * Tokens that can carry attacker-influenced free text (a customer's name, a ticket
+     * subject/number a customer typed, a staff assignee's name) — HTML-escaped when the
+     * template is destined for an email, since the body is rendered as Markdown-to-HTML with
+     * raw HTML passthrough allowed. Other tokens (URLs, formatted amounts/dates, app-generated
+     * status text) are never escaped: they're either not attacker-controlled, or — in the case
+     * of pay_url/pdf_url — escaping would corrupt the "&" in a signed URL's query string.
+     */
+    private const HTML_ESCAPED_TOKENS = ['customer_name', 'ticket_subject', 'ticket_number', 'assignee_name'];
+
+    /**
      * @return array{subject: ?string, body: string}
      */
     public function render(string $key, array $tokens): array
     {
         $defaults = self::DEFAULTS[$key] ?? throw new \InvalidArgumentException("Unknown template key: {$key}");
+        $isEmail = str_starts_with($key, 'email_');
 
         $subjectTemplate = Setting::get("template_{$key}_subject", $defaults['subject'] ?? null);
         $bodyTemplate = Setting::get("template_{$key}_body", $defaults['body']);
 
         return [
-            'subject' => $subjectTemplate ? $this->substitute($subjectTemplate, $tokens) : null,
-            'body' => $this->substitute($bodyTemplate, $tokens),
+            // Subject is a plain email header, never HTML-rendered — left unescaped so it
+            // reads naturally in the recipient's inbox.
+            'subject' => $subjectTemplate ? $this->substitute($subjectTemplate, $tokens, false) : null,
+            'body' => $this->substitute($bodyTemplate, $tokens, $isEmail),
         ];
     }
 
@@ -94,11 +107,17 @@ class TemplateRenderer
         return "Transfer manual ke:\n".$lines->implode("\n");
     }
 
-    private function substitute(string $template, array $tokens): string
+    private function substitute(string $template, array $tokens, bool $escapeForHtml): string
     {
         $replacements = [];
         foreach ($tokens as $token => $value) {
-            $replacements['{{'.$token.'}}'] = (string) $value;
+            $value = (string) $value;
+
+            if ($escapeForHtml && in_array($token, self::HTML_ESCAPED_TOKENS, true)) {
+                $value = e($value);
+            }
+
+            $replacements['{{'.$token.'}}'] = $value;
         }
 
         return strtr($template, $replacements);

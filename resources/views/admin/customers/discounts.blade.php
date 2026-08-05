@@ -16,6 +16,8 @@
                     Pilih tipe diskon per pelanggan: <strong>Persen</strong> (dari biaya paket) atau <strong>Nominal</strong> (potongan Rp tetap).
                     Dihitung otomatis setiap kali tagihan pelanggan tersebut dibuat (otomatis harian, manual, maupun massal).
                     Isi 0 atau kosongkan untuk pelanggan tanpa diskon.
+                    Isi <strong>Berlaku Sampai</strong> untuk diskon yang punya batas waktu — setelah tanggal itu, tagihan berikutnya
+                    otomatis kembali ke harga normal tanpa perlu diubah manual. Kosongkan untuk diskon tanpa batas waktu.
                     Perubahan di sini <strong>tidak</strong> mengubah tagihan yang sudah terbit — hanya berlaku untuk tagihan berikutnya.
                 </p>
 
@@ -33,6 +35,7 @@
                                 <th class="py-3 pr-4 w-32">Tipe</th>
                                 <th class="py-3 pr-4 w-40">Nilai Diskon</th>
                                 <th class="py-3 pr-4 w-56">Keterangan Diskon</th>
+                                <th class="py-3 pr-4 w-40">Berlaku Sampai</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -62,9 +65,13 @@
                                         <x-text-input type="text" name="discount_note[{{ $customer->id }}]" maxlength="255"
                                             class="block w-full" value="{{ $customer->discount_note }}" placeholder="mis. diskon karyawan" />
                                     </td>
+                                    <td class="py-2 pr-4">
+                                        <x-text-input type="date" name="discount_valid_until[{{ $customer->id }}]"
+                                            class="block w-full" value="{{ optional($customer->discount_valid_until)->format('Y-m-d') }}" />
+                                    </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="6" class="py-6 text-center text-gray-500">Tidak ada pelanggan aktif dengan paket.</td></tr>
+                                <tr><td colspan="7" class="py-6 text-center text-gray-500">Tidak ada pelanggan aktif dengan paket.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

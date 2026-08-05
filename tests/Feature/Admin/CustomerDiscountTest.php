@@ -41,6 +41,7 @@ class CustomerDiscountTest extends TestCase
             'discount_type' => [$customer->id => 'percent'],
             'discount_percent' => [$customer->id => '15'],
             'discount_note' => [$customer->id => 'Diskon pelanggan lama'],
+            'discount_valid_until' => [$customer->id => '2026-12-31'],
         ]);
 
         $response->assertRedirect(route('customers.discounts'));
@@ -48,10 +49,33 @@ class CustomerDiscountTest extends TestCase
         $this->assertSame('percent', $customer->discount_type);
         $this->assertSame(15.0, (float) $customer->discount_percent);
         $this->assertSame('Diskon pelanggan lama', $customer->discount_note);
+        $this->assertSame('2026-12-31', $customer->discount_valid_until->format('Y-m-d'));
 
         $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
         $this->assertSame(30000.0, (float) $invoice->discount_amount);
         $this->assertSame(170000.0, (float) $invoice->total_amount);
+    }
+
+    public function test_blank_valid_until_means_no_expiry(): void
+    {
+        $this->actingAsSuperAdmin();
+
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 200000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-D8B', 'name' => 'Customer D8B', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active', 'discount_valid_until' => '2026-01-01',
+        ]);
+
+        $this->post(route('customers.discounts.store'), [
+            'discount_type' => [$customer->id => 'percent'],
+            'discount_percent' => [$customer->id => '10'],
+            'discount_valid_until' => [$customer->id => ''],
+        ]);
+
+        $customer->refresh();
+        $this->assertNull($customer->discount_valid_until);
     }
 
     public function test_nominal_discount_type_deducts_a_fixed_rupiah_amount(): void

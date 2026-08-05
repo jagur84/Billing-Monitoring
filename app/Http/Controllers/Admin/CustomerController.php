@@ -124,6 +124,8 @@ class CustomerController extends Controller
             'discount_nominal.*' => ['nullable', 'numeric', 'min:0'],
             'discount_note' => ['nullable', 'array'],
             'discount_note.*' => ['nullable', 'string', 'max:255'],
+            'discount_valid_until' => ['nullable', 'array'],
+            'discount_valid_until.*' => ['nullable', 'date'],
         ]);
 
         $updated = 0;
@@ -137,12 +139,14 @@ class CustomerController extends Controller
 
             $percent = $data['discount_percent'][$customerId] ?? null;
             $nominal = $data['discount_nominal'][$customerId] ?? null;
+            $validUntil = $data['discount_valid_until'][$customerId] ?? null;
 
             $customer->update([
                 'discount_type' => $type ?: 'percent',
                 'discount_percent' => $percent !== null && $percent !== '' ? (float) $percent : 0,
                 'discount_nominal' => $nominal !== null && $nominal !== '' ? (float) $nominal : 0,
                 'discount_note' => $data['discount_note'][$customerId] ?? null,
+                'discount_valid_until' => $validUntil !== '' ? $validUntil : null,
             ]);
 
             $updated++;

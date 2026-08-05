@@ -37,8 +37,9 @@ class InvoiceService
         $package = $customer->package;
         $amount = (float) $package->price;
         $tax = round($amount * ((float) $package->tax_percent / 100), 2);
-        $discount = min($this->discountFor($customer, $amount), $amount + $tax);
         $dueDay = min($customer->billing_due_day, Carbon::create($year, $month, 1)->daysInMonth);
+        $dueDate = Carbon::create($year, $month, $dueDay);
+        $discount = min($this->discountFor($customer, $amount, $dueDate), $amount + $tax);
 
         $invoice = Invoice::create([
             'invoice_number' => $this->generateInvoiceNumber($month, $year),
@@ -52,7 +53,7 @@ class InvoiceService
             'discount_amount' => $discount,
             'carry_over_amount' => 0,
             'total_amount' => $amount + $tax - $discount,
-            'due_date' => Carbon::create($year, $month, $dueDay),
+            'due_date' => $dueDate,
             'status' => 'unpaid',
         ]);
 
@@ -63,12 +64,19 @@ class InvoiceService
 
     /**
      * The customer's recurring discount against a package amount — either a flat percentage
-     * of it, or a fixed rupiah amount — per their configured discount_type. Not capped to the
-     * invoice total here; the caller clamps it so a large nominal discount can't push total
+     * of it, or a fixed rupiah amount — per their configured discount_type, valid only through
+     * discount_valid_until (null means no expiry) judged against the invoice's own due date, not
+     * "today" — so a discount set to expire end-of-year still applies to every invoice actually
+     * due within that year, regardless of the day it happens to be generated on. Not capped to
+     * the invoice total here; the caller clamps it so a large nominal discount can't push total
      * below zero.
      */
-    private function discountFor(Customer $customer, float $amount): float
+    private function discountFor(Customer $customer, float $amount, Carbon $dueDate): float
     {
+        if ($customer->discount_valid_until && $dueDate->gt($customer->discount_valid_until)) {
+            return 0.0;
+        }
+
         return round(match ($customer->discount_type) {
             'nominal' => (float) $customer->discount_nominal,
             default => $amount * ((float) $customer->discount_percent / 100),

@@ -64,6 +64,39 @@ class InvoiceServiceTest extends TestCase
         $this->assertSame(180000.0, (float) $invoice->total_amount);
     }
 
+    public function test_discount_still_applies_when_due_date_is_on_or_before_the_expiry(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 200000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-D8', 'name' => 'Not Yet Expired Customer', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active', 'discount_percent' => 10,
+            'discount_valid_until' => '2026-08-10',
+        ]);
+
+        $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
+
+        $this->assertSame(20000.0, (float) $invoice->discount_amount);
+    }
+
+    public function test_discount_no_longer_applies_once_the_invoice_due_date_is_past_the_expiry(): void
+    {
+        $package = Package::create([
+            'name' => 'Home 10 Mbps', 'speed_mbps' => 10, 'price' => 200000, 'tax_percent' => 0, 'is_active' => true,
+        ]);
+        $customer = Customer::create([
+            'customer_code' => 'CUST-D9', 'name' => 'Expired Customer', 'package_id' => $package->id,
+            'billing_due_day' => 10, 'status' => 'active', 'discount_percent' => 10,
+            'discount_valid_until' => '2026-07-31',
+        ]);
+
+        $invoice = app(InvoiceService::class)->generateForCustomer($customer, 8, 2026);
+
+        $this->assertSame(0.0, (float) $invoice->discount_amount);
+        $this->assertSame(200000.0, (float) $invoice->total_amount);
+    }
+
     public function test_it_applies_a_fixed_nominal_discount(): void
     {
         $package = Package::create([

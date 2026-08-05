@@ -30,6 +30,7 @@ class Customer extends Model
         'discount_percent',
         'discount_nominal',
         'discount_note',
+        'discount_valid_until',
         'status',
         'notes',
     ];
@@ -44,6 +45,7 @@ class Customer extends Model
             'installation_date' => 'date',
             'discount_percent' => 'decimal:2',
             'discount_nominal' => 'decimal:2',
+            'discount_valid_until' => 'date',
         ];
     }
 

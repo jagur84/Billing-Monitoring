@@ -27,7 +27,7 @@
 
         @if ($customers !== null)
             <x-panel>
-                <form method="POST" action="{{ route('invoices.outstanding-balance.store') }}">
+                <form method="POST" action="{{ route('invoices.outstanding-balance.store') }}" x-data="{ search: '' }">
                     @csrf
                     <input type="hidden" name="month" value="{{ $month }}">
                     <input type="hidden" name="year" value="{{ $year }}">
@@ -37,6 +37,10 @@
                         Kosongkan atau isi 0 untuk pelanggan yang tidak punya sisa tagihan periode ini — baris itu tidak akan disimpan.
                         Pelanggan yang sudah punya tagihan untuk periode ini akan otomatis dilewati.
                     </p>
+
+                    <div class="mb-4">
+                        <x-text-input type="text" x-model="search" placeholder="Cari nama atau kode pelanggan..." class="w-full sm:w-72" />
+                    </div>
 
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -50,7 +54,7 @@
                             </thead>
                             <tbody class="divide-y divide-gray-100">
                                 @forelse ($customers as $customer)
-                                    <tr>
+                                    <tr x-data="{ q: @js(strtolower($customer->name.' '.$customer->customer_code)) }" x-show="q.includes(search.toLowerCase())">
                                         <td class="py-2 pr-4 font-mono text-xs text-gray-500">{{ $customer->customer_code }}</td>
                                         <td class="py-2 pr-4 text-gray-900">{{ $customer->name }}</td>
                                         <td class="py-2 pr-4 text-gray-600">{{ $customer->package?->name ?? '-' }}</td>

@@ -23,6 +23,8 @@ class DashboardController extends Controller
             return view('dashboard-finance', $this->dashboardData->financialData());
         }
 
+        abort_unless($user->hasAnyRole(['super-admin', 'admin']), 403);
+
         return view('dashboard', array_merge($this->dashboardData->financialData(), $this->dashboardData->customerData()));
     }
 }

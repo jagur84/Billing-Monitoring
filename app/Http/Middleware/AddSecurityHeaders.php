@@ -27,18 +27,23 @@ class AddSecurityHeaders
 
         // X-Frame-Options and X-Content-Type-Options are already added by nginx
         // (docker/nginx/app.conf) — not repeated here to avoid duplicate headers.
-        $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
-        // 'unsafe-inline'/'unsafe-eval' are unavoidable right now: Alpine.js (not the CSP-safe
-        // build) evaluates x-data/x-show expressions via new Function(), and several existing
-        // views use native onclick= handlers and inline style= attributes. Tightening those
-        // would mean auditing/rewriting views app-wide, not a header change — left as a known
-        // follow-up. Even so, this still blocks loading script/style/frame content from any
-        // third-party origin, clickjacking via framing, <object>/<embed> plugins, and
-        // cross-origin form submission.
-        $response->headers->set('Content-Security-Policy', implode('; ', [
+        // HSTS and upgrade-insecure-requests only make sense over an actual HTTPS
+        // connection — the app currently also runs plain-HTTP over a bare IP (its domain's
+        // DNS was repointed elsewhere), and forcing an upgrade to HTTPS there breaks every
+        // asset load, since @vite() emits absolute http:// URLs and nothing listens on 443
+        // for the IP. $request->secure() relies on trusted proxies (bootstrap/app.php) seeing
+        // the reverse proxy's X-Forwarded-Proto.
+        $cspDirectives = [
             "default-src 'self'",
+            // 'unsafe-inline'/'unsafe-eval' are unavoidable right now: Alpine.js (not the
+            // CSP-safe build) evaluates x-data/x-show via new Function(), and several existing
+            // views use native onclick= handlers and inline style= attributes. Tightening
+            // those would mean auditing/rewriting views app-wide, not a header change — left
+            // as a known follow-up. Even so, this still blocks loading script/style/frame
+            // content from any third-party origin, clickjacking via framing, <object>/<embed>
+            // plugins, and cross-origin form submission.
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
             "style-src 'self' 'unsafe-inline' https://fonts.bunny.net",
             "font-src 'self' https://fonts.bunny.net",
@@ -48,8 +53,14 @@ class AddSecurityHeaders
             "base-uri 'self'",
             "form-action 'self'",
             "object-src 'none'",
-            'upgrade-insecure-requests',
-        ]));
+        ];
+
+        if ($request->secure()) {
+            $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+            $cspDirectives[] = 'upgrade-insecure-requests';
+        }
+
+        $response->headers->set('Content-Security-Policy', implode('; ', $cspDirectives));
 
         return $response;
     }

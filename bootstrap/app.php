@@ -21,6 +21,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhooks/tripay',
         ]);
 
+        // The app always sits behind a reverse proxy we control (host nginx and/or the
+        // dockerized nginx), never directly exposed — trusting all proxies here is what lets
+        // $request->secure() correctly read the proxy's X-Forwarded-Proto instead of always
+        // seeing the plain-HTTP connection nginx makes to PHP-FPM internally.
+        $middleware->trustProxies(at: '*');
+
         $middleware->web(append: [
             \App\Http\Middleware\AddSecurityHeaders::class,
         ]);
